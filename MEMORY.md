@@ -32,7 +32,13 @@ Phase 2 build progress (2026-09-28). Order of work step 2 is done: migration 100
 - income_records has the normalized columns; ytd_amount was renamed to ytd_gross.
 - The live catalog was verified.
 - The isolation suite was extended in the same change (T1 to T5): token column unreadable, webhook_events unreadable, no client connection writes, storage isolation (cross access returns "Object not found", so existence is not leaked), and the statement and confirmation flow. Result: 29 of 29 tests, 338 of 338 checks, with teardown back to the user's real data only.
-Next: step 3, the shared normalized schema and redaction module, then the Textract pipeline.
+Steps 3 and 4 done, 2026-09-28.
+- Shared modules in supabase/functions/_shared/: normalized.ts (strict Zod schema, key set, column mapping), redact.ts (removes account and routing numbers, SSN, DOB, and addresses by field name and value pattern), textract.ts (query sets, answer reader that ignores raw text, strict parsers, record builder), documents.ts (file type sniffing and PDF page count, run before any AWS call), and auth.ts (getClaims verification, applicant role, RLS client plus service client).
+- 87 unit tests (npm test). The redaction tests were confirmed meaningful by a mutation check.
+- Fixtures come from scripts/make_document_fixtures.py, with expected.json as the answer key.
+- document-ingest is deployed with `supabase functions deploy --use-api` (no Docker) and verify_jwt=false in config.toml. The gateway cannot verify this project's ES256 tokens, so each function verifies with getClaims.
+- Integration test (npm run test:integration) against real Textract in eu-west-1 (this confirms Queries works there): 6 of 6 passed. The paystub, W-2, and Schedule C records exactly match the answer key. No SSN, person's name, or raw response is stored. The two page PDF is refused with 422 and no record is created. No token gives 401; another applicant's document gives 404. Each run makes 3 billable Textract calls.
+Next: step 6 (Plaid, moved ahead of Argyle while Argyle's approval is pending): plaid-link-token, plaid-exchange, plaid-webhook with ES256 verification, and recurring transfer detection.
 
 Next action: the user actions in PHASE-2-SPEC.md, USER ACTIONS: Plaid sandbox, Argyle sandbox, an AWS IAM user limited to Textract (billed per page; confirm cost), and a Supabase access token for function deploys. Then run the CONFIRM AT BUILD checks. Also confirm the qa-test-agent skill can produce TESTS.md shaped output, per CLAUDE.md.
 
