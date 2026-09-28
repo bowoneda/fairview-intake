@@ -10,7 +10,8 @@
     "test": "vitest run",
     "test:isolation": "vitest run tests/isolation",
     "test:theming": "playwright test",
-    "typecheck": "next typegen && tsc --noEmit"
+    "typecheck": "next typegen && tsc --noEmit",
+    "test:unit": "vitest run tests/unit"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.9.1",

@@ -12,6 +12,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Deno Edge Functions are not Next.js code; the shared modules they import are linted below.
+    "supabase/functions/**",
+    "!supabase/functions/_shared/**",
   ]),
 ]);
 
