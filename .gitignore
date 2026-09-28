@@ -1,0 +1,26 @@
+# Secrets: every env file except the committed template
+.env*
+!.env.example
+
+# Dependencies and build output
+node_modules/
+.next/
+out/
+build/
+*.tsbuildinfo
+next-env.d.ts
+
+# Supabase CLI local state
+supabase/.temp/
+supabase/.branches/
+
+# Test artifacts
+test-results/
+playwright-report/
+coverage/
+
+# OS and editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
