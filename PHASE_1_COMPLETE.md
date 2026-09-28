@@ -154,11 +154,11 @@ Method: I read SECURITY.md's "PHASE 1 EARLY PASS FINDINGS" section.
 
 [x] Genericization check from RULES.md run, exact command as written there, no output.
 
-Method: at local UTC 2026-09-28T14:35:40Z, from the repository root, with a clean working tree at HEAD c8c771a, I ran:
-
-    git grep -n -i -E "<the pattern in RULES.md>" -- . ":!CLAUDE.md" ":!COLLABORATION-1.md" ":!MASTER-SPEC-1.md" ":!RULES.md"
+Method: at local UTC 2026-09-28T14:35:40Z, from the repository root, with a clean working tree at HEAD c8c771a, I ran the exact git grep command written in RULES.md, section GENERICIZATION IS ENFORCED, NOT DECORATIVE, unmodified.
 
 It produced no output, with exit code 1.
+
+(Edited by the builder after the vetting, wording only: the vetter's original text quoted the command literally, and since the command names the forbidden places, quoting it made this file itself fail the check. The command is now referenced rather than quoted. The vetter's method and result are unchanged.)
 
 Phase 1 status: complete. All 11 items were independently verified by the Master Vetting sub-agent.
 

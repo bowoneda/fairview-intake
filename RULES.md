@@ -10,7 +10,7 @@ The check is a case insensitive search for Chicago, Illinois, or Cook County acr
 
     git grep -n -i -E "chicago|illinois|cook county" -- . ":!CLAUDE.md" ":!COLLABORATION-1.md" ":!MASTER-SPEC-1.md" ":!RULES.md"
 
-A clean result is no output and exit code 1. The search covers tracked files only, so installed dependencies are not in scope (timezone data in date libraries legitimately contains America/Chicago). Anything the project commits is in scope, including test fixtures and sandbox response samples copied from Plaid or Argyle, which must be scrubbed if they carry a real address in one of the forbidden places.
+A clean result is no output and exit code 1. Other files, including phase completion evidence, refer to this command by name ("the genericization check in RULES.md") and never quote it, since quoting it would put the forbidden names in a non-excluded file. Run the check as a gate before a commit, so that a failure stops the commit. The search covers tracked files only, so installed dependencies are not in scope (timezone data in date libraries legitimately contains America/Chicago). Anything the project commits is in scope, including test fixtures and sandbox response samples copied from Plaid or Argyle, which must be scrubbed if they carry a real address in one of the forbidden places.
 
 ## TENANT ISOLATION RULES
 
