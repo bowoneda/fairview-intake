@@ -417,3 +417,15 @@ enabled = true
 # The gateway JWT check cannot verify this project's ES256 tokens; each function verifies with getClaims.
 [functions.document-ingest]
 verify_jwt = false
+
+[functions.plaid-link-token]
+verify_jwt = false
+
+[functions.plaid-exchange]
+verify_jwt = false
+
+[functions.plaid-sandbox]
+verify_jwt = false
+
+[functions.plaid-webhook]
+verify_jwt = false
