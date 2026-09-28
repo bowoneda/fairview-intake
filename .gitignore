@@ -35,3 +35,4 @@ yarn-error.log*
 
 # Generated test evidence (regenerated per run)
 tests/isolation/reports/
+tests/theming/screenshots/

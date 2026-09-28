@@ -17,9 +17,24 @@ Builder checks, run against a real dev server with real sessions from @supabase/
 - A signed in applicant saw the start form, then the overview and household step.
 - A tenant B session on cedar-row pages saw only the mismatch page, with no application data.
 
-Open items for step 8, not yet verified:
-1. User action: the fairview-dev email template must include {{ .Token }} for the code to appear in the email, and the built in Supabase email sender is heavily rate limited. The browser round trip through the server actions (send code, verify, add household member) has not been run.
-2. The Playwright theming check in PHASE-1-SPEC.md is not built. Browser downloads are very large on this machine's slow connection (npm about 28 KB/s); the HTTP check above covers the rendered CSS but not computed styles.
+Browser round trip, 2026-09-28. The user set up custom SMTP in fairview-dev through Brevo (smtp-relay.brevo.com:587), because Supabase only allows editing email templates with custom SMTP. They edited the Magic link or OTP template to show {{ .Token }}. Two setup issues were found and fixed:
+- Brevo's authorized IP restriction rejected Supabase's sends, and the user disabled it.
+- The project's email OTP length is 8 digits, not 6, so the app now accepts 6 to 8 digit codes, with wording updated in the app and DESIGN.md.
+
+The user then completed the flow in a real browser: send code, verify, overview, add the head of household, close, and resume with Household shown Complete. Database check afterwards:
+- One auth user, confirmed, who signed up from cedar-row.
+- public.users row in cedar-row with role applicant.
+- One application for maple-court, owner matching the profile.
+- One household member (head), tied to that application, tenant matching, ssn_encrypted empty.
+- Nothing in any other table.
+
+Two findings from the dev server log, both fixed:
+1. Next 16's dev server logs every Server Function's arguments, which printed the applicant's email. It is now disabled with logging.serverFunctions: false in next.config.ts, and the local log was masked.
+2. A network failure reaching Supabase ("fetch failed", on this machine's slow connection) surfaced to the user as a raw crash. Error pages were added: app/error.tsx, neutral, catching layout failures such as the tenant lookup, and app/[tenant]/error.tsx, themed, catching page failures. Neither shows internal error text.
+
+Open items for step 8:
+1. Closed: the email template and browser round trip, above.
+2. Closed 2026-09-28: the Playwright theming check is built in tests/theming/ (npm run test:theming). @playwright/test is pinned to exactly 1.60.0, matching the machine's global Playwright, so it reuses the cached chromium-1223 in %LOCALAPPDATA%\ms-playwright with no browser download. Install it with PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1. Changing the version would trigger a large download. Builder run: 5 of 5 passed, on computed --color-primary and header background for both operators, own properties only, a live SQL color change, preview contrast 9.15:1 and 9.74:1, and a neutral 404. Both landing screenshots were inspected and match DESIGN.md. The isolation suite was re-run afterwards: 274 of 274.
 3. Not built in Phase 1: removing a household member (no delete policy exists), and the unsaved changes prompt from DESIGN.md.
 
 Step 7 (2026-09-28): isolation suite built in tests/isolation/ and run twice against fairview-dev. Final run: 24 test groups, 274 of 274 recorded checks passed. This is a builder run, not vetting evidence. On review of the first run's report, one check (Y1.1) had passed for the wrong reason. It was rejected by a duplicate program enrollment rather than by tenant isolation. It was fixed to use a program tenant B's property is not enrolled in, and now fails on the composite tenant foreign key as intended. Teardown was confirmed to leave the database exactly at seed state. PHASE-1-SPEC.md was clarified: the cross tenant read tests cover the ten private tables, because theme_configs, properties, and property_programs are public by design. Setup adds A3, an applicant with no application, and AA, a tenant A admin.

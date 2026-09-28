@@ -9,6 +9,7 @@
     "lint": "eslint",
     "test": "vitest run",
     "test:isolation": "vitest run tests/isolation",
+    "test:theming": "playwright test",
     "typecheck": "next typegen && tsc --noEmit"
   },
   "dependencies": {
@@ -22,6 +23,7 @@
     "zod": "^4.6.5"
   },
   "devDependencies": {
+    "@playwright/test": "1.60.0",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^22.20.4",
     "@types/pg": "^8.23.1",
