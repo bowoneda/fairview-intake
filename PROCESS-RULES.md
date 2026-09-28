@@ -38,6 +38,10 @@ Phase 1 status: complete, 2026-09-28. Every item independently verified by the M
 [ ] Plaid transaction classification identifies recurring peer to peer income transfers in a sandbox account and produces a recurring transfer income source.
 [ ] Webhook signature verification present and tested for both Plaid and Argyle, even in sandbox mode.
 [ ] Integration test suite covering all three ingestion paths.
+[ ] Normalized income record shape identity test passes: one record from each pipeline validates against the single shared schema with an identical key set.
+[ ] New Phase 2 tables have tenant_id and RLS in the migration that creates them; isolation suite extended to them and to the private document storage bucket, and passing.
+[ ] Recurring transfers follow PHASE-2-SPEC.md's rule: detected by software, stated by the family, confirmed by a reviewer; no transfer becomes income through software alone.
+[ ] No raw Textract response, SSN, or full account number is stored anywhere, confirmed by query; raw provider payloads are stored redacted; Plaid access tokens are encrypted and unreadable by any client role.
 [ ] Genericization check from RULES.md run, exact command as written there, no output.
 
 Phase 2 status: not started.

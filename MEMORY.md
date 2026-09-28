@@ -7,7 +7,18 @@ Living state file. Update this at the end of every work session, regardless of h
 Phase 0, foundation: complete.
 Phase 1, architecture and shell: COMPLETE, 2026-09-28. The Master Vetting sub-agent, a fresh general purpose agent grounded in all project documents, independently verified all 11 PROCESS-RULES.md Phase 1 items with its own evidence. That included dev credentials rejected by staging, the live catalog, both suites run by it (Vitest 26 of 26 with 283 checks, Playwright 5 of 5), its own hand made cross tenant read and write with positive controls, its own SQL inserted operator rendering, a design token match, security spot checks, and the genericization grep. Evidence is in PHASE_1_COMPLETE.md. It could not see the staging project's creation date, and it did not compare staging key hashes, since no staging credentials are on this machine; the rejection probes stood in for that. Its observations, none failures: owner connection bypasses RLS (Phase 5 note), anonymous operator listing (SEC-P1-03, Phase 4), its hand probes were applicant level only, the Harbor Point test fixture has no program link, and this machine's clock is about 4 hours behind the database server.
 
-Phase 2, financial ingestion: not started. Next: write PHASE-2-SPEC.md, as decided at the start of Phase 1. Before Phase 2, settle the open items in MASTER-SPEC-1.md that belong to it, starting with the recurring transfer income rule. Also confirm the qa-test-agent skill can produce TESTS.md shaped output, per CLAUDE.md.
+Phase 2, financial ingestion: specified, not started. PHASE-2-SPEC.md was written 2026-09-28, after researching current primary sources: 24 CFR 5.609 as amended by HOTMA; HUD Notice PIH 2023-27 / H 2023-10, Attachments G.1 and G.19; Plaid webhook verification and recurring transactions documentation; Argyle webhook documentation; and the AWS Textract AnalyzeDocument documentation and set quotas.
+
+Key decisions:
+- Provider code runs in Supabase Edge Functions, so webhooks get public endpoints and provider secrets stay out of Next.js.
+- Plaid Auth is not requested, so no full account numbers are ever received.
+- Textract is synchronous only, one page, at most 15 queries. The needed Schedule C lines are all on page 1, so no S3 bucket is needed.
+- AWS A2I human review is in maintenance mode as of July 2026, so review always goes to the platform's own queue.
+- Recurring peer to peer transfers: software detects, the family states, a reviewer confirms, per HUD G.1.
+- The raw Textract response is never stored; provider payloads are stored redacted.
+PROCESS-RULES.md Phase 2 gained four gate items: shape identity, new table RLS, the recurring transfer rule, and no stored PII or raw responses.
+
+Next action: the user actions in PHASE-2-SPEC.md, USER ACTIONS: Plaid sandbox, Argyle sandbox, an AWS IAM user limited to Textract (billed per page; confirm cost), and a Supabase access token for function deploys. Then run the CONFIRM AT BUILD checks. Also confirm the qa-test-agent skill can produce TESTS.md shaped output, per CLAUDE.md.
 
 Phase 1 build log, retained below for reference.
 Phase 1 (build log): in progress, now closed. Steps 1 to 9 of PHASE-1-SPEC.md's order of work are done, and step 10's Security Skill early pass is done (2026-09-28, recorded in SECURITY.md, PHASE 1 EARLY PASS FINDINGS). It found no high severity issue. One medium finding was fixed: SEC-P1-01, where an applicant could set any application status. Migration 900 added a trigger allowing applicants only in_progress to submitted, and regression tests E1 to E4 were added. The isolation suite now has 26 tests and 283 checks, all passing on the final run. Next: the Master Vetting sub-agent for the Phase 1 gate. No PROCESS-RULES.md item is marked until it verifies. The ui-kit-designer skill was installed into .claude/skills/ from the user's THUB project, with its hardcoded kie.ai API key removed; CLAUDE.md records how it applies here.

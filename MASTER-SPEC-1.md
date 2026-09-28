@@ -121,7 +121,9 @@ Effective year of the asset threshold and passbook rate (Phase 3). The real fift
 
 Self employment income (Phase 3). The listing includes 1040 Schedule C parsing, but CALC-SPEC-1.md has no methodology or worked example for self employment income. Add it through the Regulatory Compliance Verification Skill before the engine is built.
 
-Recurring transfer income (Phase 2 and 3). Classifying recurring peer to peer deposits as income needs a stated rule: what counts as recurring, and when a reviewer must confirm it. Define in the Phase 2 specification, and add the calculation side to CALC-SPEC-1.md.
+Recurring transfer income (Phase 2 and 3). Phase 2 half resolved in PHASE-2-SPEC.md, RECURRING TRANSFER RULE, grounded in 24 CFR 5.609 as amended by HOTMA and HUD Notice PIH 2023-27 / H 2023-10, Attachment G.1: regular periodic payments are income unless excluded; software detects, the family states, a reviewer confirms. Still open for Phase 3: the annualization of a confirmed recurring contribution, and the project convention treating confirmed shared expense reimbursements as not income, both to be confirmed by the Regulatory Compliance Verification Skill and added to CALC-SPEC-1.md with worked examples.
+
+Self employment income (Phase 3), source now identified: HUD Notice PIH 2023-27 / H 2023-10, Attachment G.19. Net income (gross minus business expenses) counts; straight line depreciation is allowed; business expansion and amortization of capital debt are not deductible. The CALC-SPEC-1.md methodology and worked example are still to be written.
 
 Per program tier sets (Phase 3). CALC-SPEC-1.md defines one tier set (30, 50, 60, 80 percent). Confirm which tiers each seeded program uses.
 

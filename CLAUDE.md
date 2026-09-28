@@ -46,7 +46,7 @@ CALC-SPEC-1.md: the actual income determination methodology, worked numeric exam
 
 DESIGN.md: the UI and system design, built from the two files above plus the UX and Interface Skill's output once produced.
 
-PHASE-1-SPEC.md through PHASE-5-SPEC.md: engineering level detail for each phase beyond MASTER-SPEC-1.md's milestone level acceptance criteria. PHASE-1-SPEC.md exists (written 2026-09-28); PHASE-2 through PHASE-5 do not yet. Whether a later phase gets one is decided at the start of that phase and recorded in MEMORY.md. Where no phase spec exists, MASTER-SPEC-1.md and PROCESS-RULES.md govern that phase. If PHASE-3-SPEC.md is written, it covers only the engineering work around the calculation logic, meaning the PDF field mapping and the signature integration, and does not restate the math, which lives entirely in CALC-SPEC-1.md.
+PHASE-1-SPEC.md through PHASE-5-SPEC.md: engineering level detail for each phase beyond MASTER-SPEC-1.md's milestone level acceptance criteria. PHASE-1-SPEC.md and PHASE-2-SPEC.md exist (both written 2026-09-28); PHASE-3 through PHASE-5 do not yet. Whether a later phase gets one is decided at the start of that phase and recorded in MEMORY.md. Where no phase spec exists, MASTER-SPEC-1.md and PROCESS-RULES.md govern that phase. If PHASE-3-SPEC.md is written, it covers only the engineering work around the calculation logic, meaning the PDF field mapping and the signature integration, and does not restate the math, which lives entirely in CALC-SPEC-1.md.
 
 MASTER-VETTING-SKILL.md: the formal, project agnostic version of the no-self-report-trusted discipline. Invoke this at the close of every phase, without exception, before any PHASE_X_COMPLETE.md is written, run by a fresh, fully grounded sub-agent as described above.
 
