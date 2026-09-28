@@ -2,53 +2,25 @@
 // INGESTION STATE MACHINE). No caller JWT: Plaid's signature is the authentication.
 //   Plaid-Verification header: ES256 JWT; key fetched by kid from /webhook_verification_key/get and cached;
 //   iat no more than 5 minutes old; SHA-256 of the exact raw body equals request_body_sha256 (constant time).
-import { decodeProtectedHeader, importJWK, jwtVerify, type JWK } from "jose";
+import type { JWK } from "jose";
 import { json, serviceClient } from "../_shared/auth.ts";
 import { ingestItem, plaid, PlaidError, type Connection } from "../_shared/plaid.ts";
+import { sha256Hex, verifyPlaidWebhook } from "../_shared/plaid-verify.ts";
 
 const keyCache = new Map<string, JWK>();
 const RETRY_MINUTES = [1, 5, 15, 60];
 
-async function sha256Hex(text: string): Promise<string> {
-  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
-  return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
-}
-
-function constantTimeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  let diff = 0;
-  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  return diff === 0;
-}
-
-/** Returns null when valid, otherwise a short reason (recorded, never the body). */
-async function verify(req: Request, body: string): Promise<string | null> {
-  const token = req.headers.get("Plaid-Verification");
-  if (!token) return "missing_signature";
-  let kid: string | undefined;
+/** Plaid's key for a key id, cached; null when Plaid does not know the id. */
+async function resolveKey(kid: string): Promise<JWK | null> {
+  const cached = keyCache.get(kid);
+  if (cached) return cached;
   try {
-    const header = decodeProtectedHeader(token);
-    if (header.alg !== "ES256") return "wrong_algorithm";
-    kid = header.kid;
-  } catch {
-    return "malformed_signature";
-  }
-  if (!kid) return "missing_key_id";
-  try {
-    let jwk = keyCache.get(kid);
-    if (!jwk) {
-      const r = await plaid<{ key: JWK }>("/webhook_verification_key/get", { key_id: kid });
-      jwk = r.key;
-      keyCache.set(kid, jwk);
-    }
-    const { payload } = await jwtVerify(token, await importJWK(jwk, "ES256"), { algorithms: ["ES256"], maxTokenAge: "5 minutes" });
-    const claimed = String(payload.request_body_sha256 ?? "");
-    if (!constantTimeEqual(await sha256Hex(body), claimed)) return "body_mismatch";
-    return null;
+    const r = await plaid<{ key: JWK }>("/webhook_verification_key/get", { key_id: kid });
+    keyCache.set(kid, r.key);
+    return r.key;
   } catch (e) {
-    if (e instanceof PlaidError) return "unknown_key";
-    const code = (e as { code?: string }).code ?? "";
-    return code === "ERR_JWT_EXPIRED" || code === "ERR_JWT_CLAIM_VALIDATION_FAILED" ? "stale_signature" : "bad_signature";
+    if (e instanceof PlaidError) return null;
+    throw e;
   }
 }
 
@@ -58,7 +30,7 @@ Deno.serve(async (req) => {
   const body = await req.text();
   const eventId = await sha256Hex(body);
 
-  const failure = await verify(req, body);
+  const failure = await verifyPlaidWebhook(req.headers.get("Plaid-Verification"), body, resolveKey);
   if (failure) {
     // Recorded with type and reason only. A rejected body is never parsed further or stored.
     await svc.from("webhook_events").insert({
