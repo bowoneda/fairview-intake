@@ -20,19 +20,22 @@ Phase 0 status: complete.
 [ ] Row Level Security policy present on every tenant scoped table.
 [ ] Cross tenant read attempt, performed as an actual query by two simulated tenant users, returns zero rows.
 [ ] Cross tenant write attempt, same method, is rejected.
-[ ] Next.js intake shell resolves tenant from URL slug.
+[ ] Next.js intake shell resolves the operator from the URL slug and renders its properties (building parameters) from the database.
 [ ] A second, dummy tenant can be inserted and its own theme renders at its own slug without a code change.
+[ ] Platform reference tables (tenants, programs, program_rule_sets, ami_schedules) have RLS enabled with no client write path, confirmed by an attempted write.
 [ ] UX and Interface Skill's design system and intake flow specification produced, DESIGN.md updated accordingly.
 [ ] Security Skill's early tenant isolation pass complete, no unresolved high severity finding.
 [ ] Genericization check from RULES.md run, exact command as written there, no output.
 
-Phase 1 status: not started.
+Phase 1 status: in progress.
 
 ## PHASE 2: FINANCIAL INGESTION
 
 [ ] Plaid sandbox integration functional, produces a normalized income_records entry.
 [ ] Argyle sandbox integration functional, produces a normalized income_records entry of identical shape to the Plaid pipeline's output.
-[ ] Textract fallback pipeline functional against a sample scanned document, produces a normalized income_records entry of identical shape to the other two pipelines.
+[ ] Textract Queries fallback pipeline functional against a sample scanned paystub, W-2, and Schedule C, each producing a normalized income_records entry of identical shape to the other two pipelines.
+[ ] Argyle ingestion captures gross pay, pay frequency, YTD earnings, and deductions.
+[ ] Plaid transaction classification identifies recurring peer to peer income transfers in a sandbox account and produces a recurring transfer income source.
 [ ] Webhook signature verification present and tested for both Plaid and Argyle, even in sandbox mode.
 [ ] Integration test suite covering all three ingestion paths.
 [ ] Genericization check from RULES.md run, exact command as written there, no output.
@@ -42,13 +45,15 @@ Phase 2 status: not started.
 ## PHASE 3: RULES ENGINE AND PDF GENERATION
 
 [ ] Calculation engine built to CALC-SPEC-1.md.
-[ ] All nine required test cases in TESTS.md pass.
-[ ] Regulatory Compliance Verification Skill has independently re-derived and confirmed all nine cases against the actual engine output, not merely confirmed the existing test suite passes.
+[ ] All required test cases in TESTS.md pass.
+[ ] 100 percent code coverage on the calculation engine, per the coverage report.
+[ ] Engine reads thresholds from program_rule_sets and the income schedule from ami_schedules, and every trace records the rule set applied.
+[ ] Regulatory Compliance Verification Skill has independently re-derived and confirmed every CALC-SPEC-1.md case against the actual engine output, not merely confirmed the existing test suite passes.
 [ ] Calculation trace stored on every determination, containing every intermediate value, not only the final figure.
 [ ] FTIC PDF generation produces a document whose fields, opened and inspected directly, match the source determination.
 [ ] ACAEF PDF generation, same standard.
-[ ] E-signature integration functional against a generated document.
-[ ] No hardcoded threshold or conversion factor found outside the single configuration module named in RULES.md.
+[ ] E-signature integration functional against a generated document, with both the applicant and the landlord signing in a sandbox envelope.
+[ ] No hardcoded threshold or conversion factor found outside program_rule_sets, ami_schedules, and the single constants module named in RULES.md.
 [ ] Genericization check from RULES.md run, exact command as written there, no output.
 
 Phase 3 status: not started. This is the strictest gate on the project.
@@ -60,13 +65,16 @@ Phase 3 status: not started. This is the strictest gate on the project.
 [ ] Full STRIDE security pass complete, per SECURITY.md.
 [ ] No unresolved high severity security finding.
 [ ] Exception queue functional for cases the calculation engine routes to manual review, per the variance handling rule in CALC-SPEC-1.md.
+[ ] Twilio SMS sends a document request and a follow up reminder to a test number, confirmed received, with no PII in the message body.
 [ ] Genericization check from RULES.md run, exact command as written there, no output.
 
 Phase 4 status: not started.
 
-## PHASE 5: DEPLOYMENT
+## PHASE 5: DEPLOYMENT AND HANDOFF
 
 [ ] Staging environment deployed on Vercel and Supabase, using credentials distinct from local development.
+[ ] Production environment deployed, or the production promotion runbook written, per the Phase 5 decision recorded in MEMORY.md.
+[ ] Repository handoff documentation written: setup, environments, migrations, running the test suites, and operating runbook.
 [ ] Deployment Skill's checklist run and passed.
 [ ] Row Level Security re-verified against the actually deployed database, using the same cross tenant query attempt as Phase 1, not assumed to carry over from local development.
 [ ] End to end scenario, intake through signature, run successfully against the deployed environment.

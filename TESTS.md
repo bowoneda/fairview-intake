@@ -30,7 +30,7 @@ Sourced directly from CALC-SPEC-1.md, part by part, restated here as the literal
 
 ## COVERAGE REQUIREMENT
 
-Full coverage on the calculation engine means all nine cases above pass, plus any additional edge case the QA Test Agent Skill identifies during Phase 3 that is not already covered, for example a household with zero income sources at all, or a household where every asset falls above the threshold with no determinable income anywhere. New cases discovered this way get added to this file and to CALC-SPEC-1.md's test case summary, not tracked only in test code.
+Full coverage on the calculation engine means two things, both required. First, 100 percent line and branch coverage on the engine module, measured by Vitest's coverage report and enforced as a threshold in the test configuration, as the listing requires. Second, all nine cases above pass, plus the cases CALC-SPEC-1.md gains before Phase 3 (self employment income, income above the highest tier, recurring transfer income), plus any additional edge case the QA Test Agent Skill identifies during Phase 3 that is not already covered, for example a household with zero income sources at all, or a household where every asset falls above the threshold with no determinable income anywhere. New cases discovered this way get added to this file and to CALC-SPEC-1.md's test case summary, not tracked only in test code.
 
 ## PENDING: INTEGRATION TEST SCOPE
 

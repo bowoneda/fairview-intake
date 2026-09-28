@@ -24,3 +24,11 @@ coverage/
 Thumbs.db
 .vscode/
 .idea/
+
+# From the Next.js template
+*.pem
+.vercel
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*

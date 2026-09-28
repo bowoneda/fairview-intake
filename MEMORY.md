@@ -5,7 +5,7 @@ Living state file. Update this at the end of every work session, regardless of h
 ## CURRENT PHASE
 
 Phase 0, foundation: complete.
-Phase 1, architecture and shell: not started.
+Phase 1, architecture and shell: in progress. Step 1 of PHASE-1-SPEC.md's order of work is done.
 
 ## WHAT ACTUALLY EXISTS RIGHT NOW
 
@@ -51,8 +51,6 @@ While writing PHASE-1-SPEC.md, applicants gained user_id in MASTER-SPEC-1.md. Wi
 
 No Supabase project. No local development versus staging environment separation has been set up yet, which per CLAUDE.md must happen before any schema work begins, meaning it is the very first concrete action of Phase 1, not something to defer.
 
-No git repository. The genericization check in RULES.md uses git grep, so the repository must be initialized at the start of Phase 1.
-
 No specifications for Phases 2 to 5, no visual design system, no screen specifications, no code of any kind.
 
 ## DECISIONS LOCKED SO FAR
@@ -71,6 +69,25 @@ Environments, decided by the user 2026-09-28: development runs on a hosted Supab
 
 Phase 1 is governed by PHASE-1-SPEC.md, decided by the user 2026-09-28.
 
+Built to the Upwork listing, decided by the user 2026-09-28. Scope, stack, and milestone deliverables follow Upwork job ~022097416197562470917. It is read through the Upwork MCP tool, because direct fetches of Upwork pages return HTTP 403. MASTER-SPEC-1.md's SCOPE section is the genericized restatement the build is checked against. The listing text is never committed, since it names real places.
+
+Tenant model, decided by the user 2026-09-28: tenants are operators (multifamily developers and property managers), per the listing, not the housing authority. FHA-Meridian and the Ashland County Assessor are regulators. They define programs and receive the FTIC and ACAEF filings. The configured operator is Cedar Row Residential (slug cedar-row), with properties Maple Court and Linden Terrace. The dummy test operator is Harbor Point Communities (slug harborpoint). New tables: properties and property_programs (tenant scoped), plus programs, program_rule_sets, and ami_schedules (platform reference, read only to clients). Seventeen tables in total.
+
+Asset rule, decided by the user 2026-09-28: the current HOTMA fifty thousand dollar threshold, stored per program in program_rule_sets, so a different value is a data change. This deliberately departs from the listing's five thousand dollar pre-HOTMA figure.
+
+Production environment, noted by the user 2026-09-28: the Supabase free tier allows only two projects, and both are in use. Deferred to Phase 5 as an open decision in MASTER-SPEC-1.md: either pause development to create production, or use staging plus a promotion runbook.
+
+Listing scope added to later phases, recorded in MASTER-SPEC-1.md and PROCESS-RULES.md:
+- Phase 2: Plaid recurring peer to peer transfer classification, Argyle deductions, Textract Queries on W-2 and Schedule C forms.
+- Phase 3: 100 percent engine code coverage, AMI schedules and thresholds held as data, landlord co-signing.
+- Phase 4: Twilio SMS.
+- Phase 5: repository handoff.
+Open calculation gaps for the Regulatory Compliance Verification Skill before Phase 3: self employment income, income above the highest tier, recurring transfer income, and per program tier sets.
+
 ## NEXT ACTION
 
-Documents are corrected and consistent, and PHASE-1-SPEC.md is written, as of 2026-09-28. Phase 1 execution is ready to start, following PHASE-1-SPEC.md's ORDER OF WORK. Step 1: initialize the git repository and commit the project documents. Step 2 is a user action: create the fairview-dev and fairview-staging projects in Supabase and fill in .env.local for development only. Then the schema goes in table by table, each table's RLS in the same migration that creates it, while the UX and Interface Skill's design system work runs in parallel. Invoke MASTER-VETTING-SKILL.md at the close of every phase from here forward, without exception.
+Documents are corrected and consistent, and PHASE-1-SPEC.md is written, as of 2026-09-28. Phase 1 has started, following PHASE-1-SPEC.md's ORDER OF WORK. Step 1 is done: the git repository was initialized on 2026-09-28 on branch main, with .gitignore (every .env file except .env.example), .gitattributes (LF line endings), and .env.example. Initial commit 527262f. The genericization check from RULES.md ran clean on that commit: no output, exit 1. Step 2, 2026-09-28: the user created fairview-dev (ref mdatwozuqdiwioezalom) and fairview-staging (ref sfjgzcqvqinnfdoapnim), both in eu-west-1. .env.local holds dev values only. The dev API answered with the publishable key, and the dev database was reached through the session pooler (see PHASE-1-SPEC.md, ENVIRONMENTS; the direct host is IPv6 only and unreachable from this machine). Refs and publishable keys differ between the two projects.
+
+RESOLVED 2026-09-28: both projects were first created with the same database password. The user reset the fairview-staging password. Builder check, not vetting evidence: first twelve SHA-256 hex characters, dev versus staging, all distinct. Project ref 4eea4a3dcf20 vs 92ed0f63bc17. Publishable key a793f2e7e438 vs 66caa2ff8fbf. Secret key dcb248d64d1e vs 68eafb568b19. Database password ea8c87e7a0bb vs 9b88f5e8eb8f. No staging key or password appears in any project file; only the staging project ref, which is public, appears in this file. The staging values were shared in chat and are therefore in the local session transcript. Rotating the staging secret key before Phase 5 is optional, at the user's discretion. The dev secret key is in .env.local and was verified against the Auth admin endpoint (HTTP 200). The staging secret key was shared in chat but is deliberately not written to any file.
+
+The original step 2 instruction, kept for reference: create the fairview-dev and fairview-staging projects in Supabase and fill in .env.local for development only. Then the schema goes in table by table, each table's RLS in the same migration that creates it, while the UX and Interface Skill's design system work runs in parallel. Invoke MASTER-VETTING-SKILL.md at the close of every phase from here forward, without exception.

@@ -6,7 +6,7 @@ How each skill below is realized is decided and recorded in MEMORY.md under SKIL
 
 ## PROJECT SNAPSHOT
 
-A white labeled compliance and applicant intake platform for a fictional housing authority. It replaces manual paper income verification with connected financial data APIs, a deterministic income calculation engine, and automated generation of official regulatory filings.
+A white labeled compliance and applicant intake platform for multifamily developers and operators (the tenants), built to the scope of a real Upwork job listing under a fictional jurisdiction. It replaces manual paper income verification with connected financial data APIs, a deterministic income calculation engine, and automated generation of official regulatory filings for fictional regulators. MASTER-SPEC-1.md carries the genericized scope.
 
 Stack: Next.js (App Router, TypeScript), Tailwind CSS, React Hook Form, Zod on the frontend. Supabase (Postgres, Edge Functions, Row Level Security, Vault/pgcrypto) on the backend. Plaid and Argyle in sandbox mode for financial data. AWS Textract as an OCR fallback. pdf-lib for form generation. DocuSign or Dropbox Sign for e-signature. Twilio for SMS. Deployed on Vercel.
 
@@ -95,9 +95,9 @@ Phase 2, financial ingestion. Financial API Integration Skill builds the Plaid, 
 
 Phase 3, rules engine and PDF generation. Full Stack Engineering Skill builds the calculation engine to the Regulatory Compliance Verification Skill's specification and the pdf-lib form population logic. QA Test Agent Skill must reach full coverage on the calculation engine before this phase can close. Regulatory Compliance Verification Skill independently re-derives and checks the engine's actual output. Master Vetting Skill gates the phase and this gate is the strictest one on the project, given what a wrong calculation would mean in a real deployment.
 
-Phase 4, reviewer dashboard and hardening. UX and Interface Skill delivers the reviewer dashboard design. Full Stack Engineering Skill builds it, including PII masking. Security Skill runs its full audit pass here. Master Vetting Skill gates the phase.
+Phase 4, reviewer dashboard and hardening. UX and Interface Skill delivers the reviewer dashboard design. Full Stack Engineering Skill builds it, including PII masking. Financial API Integration Skill wires Twilio SMS for follow ups and document requests. Security Skill runs its full audit pass here. Master Vetting Skill gates the phase.
 
-Phase 5, deployment. Deployment Skill stages the environment and runs its checklist. Master Vetting Skill performs a final end to end check against the deployed environment, not just local development, before the project is considered complete.
+Phase 5, deployment and handoff. Deployment Skill stages the environment, runs its checklist, and produces the repository handoff documentation. Master Vetting Skill performs a final end to end check against the deployed environment, not just local development, before the project is considered complete.
 
 ## RELATIONSHIP TO THE STANDARD HANDOFF PACKAGE
 
