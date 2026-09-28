@@ -1,0 +1,30 @@
+{
+  "paystub": {
+    "employer_name": "Fairview Parcel Services LLC",
+    "pay_period_start": "2026-08-24",
+    "pay_period_end": "2026-09-06",
+    "pay_date": "2026-09-11",
+    "pay_frequency": "biweekly",
+    "pay_rate": 18.5,
+    "gross_pay": 1480.0,
+    "ytd_gross": 26640.0,
+    "net_pay": 1203.98
+  },
+  "w2": {
+    "employer_name": "Fairview Parcel Services LLC",
+    "tax_year": 2025,
+    "box1_wages": 34120.5,
+    "box5_medicare_wages": 35200.0
+  },
+  "schedule_c": {
+    "business_name": "Sample Lawn Care",
+    "tax_year": 2025,
+    "line1_gross_receipts": 24800.0,
+    "line28_total_expenses": 7350.0,
+    "line31_net_profit": 17450.0
+  },
+  "two-page.pdf": {
+    "pages": 2,
+    "expected": "rejected before any AWS call"
+  }
+}
