@@ -360,6 +360,48 @@ group("append only", () => {
   });
 });
 
+group("within tenant escalation (Security Skill Phase 1 early pass)", () => {
+  it("E1-E3: roles change only by an admin, only within their own tenant", async () => {
+    const roleOf = async (id: string) => (await ownerScalar(`select role from public.users where id = $1`, [id])).role;
+    const self = await fx.users.RA.client.from("users").update({ role: "admin" }).eq("id", fx.users.RA.id).select();
+    check({ id: "E1", actor: "RA", action: "reviewer sets own role to admin", expected: "0 rows, still reviewer",
+            actual: `${describe(self)}; role after: ${await roleOf(fx.users.RA.id)}`,
+            pass: rejectedOrNoRows(self) && (await roleOf(fx.users.RA.id)) === "reviewer" });
+    const cross = await fx.users.AA.client.from("users").update({ role: "admin" }).eq("id", fx.users.RB.id).select();
+    check({ id: "E2", actor: "AA", action: "admin sets tenant B reviewer's role to admin", expected: "0 rows, still reviewer",
+            actual: `${describe(cross)}; role after: ${await roleOf(fx.users.RB.id)}`,
+            pass: rejectedOrNoRows(cross) && (await roleOf(fx.users.RB.id)) === "reviewer" });
+    // Control: an admin manages their own tenant's staff. Set RA to reviewer (no net change).
+    const own = await fx.users.AA.client.from("users").update({ role: "reviewer" }).eq("id", fx.users.RA.id).select("id");
+    check({ id: "E3", actor: "AA", action: "admin updates own tenant's reviewer (control)", expected: "1 row",
+            actual: describe(own), pass: !own.error && rowsOf(own).length === 1 });
+  });
+
+  it("E4: an applicant can submit their application, and set no other status", async () => {
+    const a1 = fx.users.A1, appId = fx.rows.applicants.A1!;
+    const statusOf = async () => (await ownerScalar(`select application_status from public.applicants where id = $1`, [appId])).application_status;
+    const attempt = async (status: string) => a1.client.from("applicants").update({ application_status: status }).eq("id", appId).select("id");
+
+    for (const status of ["under_review", "determined", "closed"]) {
+      const res = await attempt(status);
+      const stored = await statusOf();
+      check({ id: "E4", actor: "A1", action: `set own status in_progress -> ${status}`, expected: "rejected, still in_progress",
+              actual: `${describe(res)}; stored: ${stored}`, pass: rejected(res) && stored === "in_progress" });
+    }
+    const submit = await attempt("submitted");
+    check({ id: "E4", actor: "A1", action: "submit own application (control)", expected: "1 row, submitted",
+            actual: `${describe(submit)}; stored: ${await statusOf()}`,
+            pass: !submit.error && rowsOf(submit).length === 1 && (await statusOf()) === "submitted" });
+    const back = await attempt("in_progress");
+    check({ id: "E4", actor: "A1", action: "set own status submitted -> in_progress", expected: "rejected, still submitted",
+            actual: `${describe(back)}; stored: ${await statusOf()}`, pass: rejected(back) && (await statusOf()) === "submitted" });
+    const staff = await fx.users.RA.client.from("applicants").update({ application_status: "under_review" }).eq("id", appId).select("id");
+    check({ id: "E4", actor: "RA", action: "reviewer moves the application to under_review (control)", expected: "1 row",
+            actual: `${describe(staff)}; stored: ${await statusOf()}`,
+            pass: !staff.error && rowsOf(staff).length === 1 && (await statusOf()) === "under_review" });
+  });
+});
+
 group("claim source attacks", () => {
   it("C2: an applicant cannot change their own tenant or role", async () => {
     const a1 = fx.users.A1;

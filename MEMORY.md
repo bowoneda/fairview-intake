@@ -5,7 +5,7 @@ Living state file. Update this at the end of every work session, regardless of h
 ## CURRENT PHASE
 
 Phase 0, foundation: complete.
-Phase 1, architecture and shell: in progress. Steps 1 to 7 of PHASE-1-SPEC.md's order of work are done. Step 8, the Next.js shell, is built, with open items listed below. Step 9's second tenant check has passed as a builder check over HTTP; the Playwright version is pending.
+Phase 1, architecture and shell: in progress. Steps 1 to 9 of PHASE-1-SPEC.md's order of work are done, and step 10's Security Skill early pass is done (2026-09-28, recorded in SECURITY.md, PHASE 1 EARLY PASS FINDINGS). It found no high severity issue. One medium finding was fixed: SEC-P1-01, where an applicant could set any application status. Migration 900 added a trigger allowing applicants only in_progress to submitted, and regression tests E1 to E4 were added. The isolation suite now has 26 tests and 283 checks, all passing on the final run. Next: the Master Vetting sub-agent for the Phase 1 gate. No PROCESS-RULES.md item is marked until it verifies. The ui-kit-designer skill was installed into .claude/skills/ from the user's THUB project, with its hardcoded kie.ai API key removed; CLAUDE.md records how it applies here.
 
 Design system (2026-09-28): the UX and Interface Skill ran as a background sub-agent and wrote DESIGN.md's visual design system, screen specifications, and save and resume sections. Tenant tokens are exactly the three theme_configs colors, and accent is decoration only. Measured: Cedar Row contrast on primary is 9.15:1, and accent on white is 3.13:1, which fails as text. Focus rings use the text color, never a tenant color. It proposed no token additions.
 
