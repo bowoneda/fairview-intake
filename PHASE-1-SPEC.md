@@ -237,6 +237,8 @@ Auth. Supabase Auth, email one time code, through @supabase/ssr with cookie sess
 
 Property selection. The property query parameter is resolved against the current operator's properties. An unknown or inactive property slug sends the applicant back to the operator landing page to choose one; it never creates an application. The composite foreign key on applicants.property_id makes an application for another operator's property impossible at the database level as well.
 
+As built (2026-09-28), refining the above. Property cards link to /[tenant]/sign-in?property=, per DESIGN.md. The application row is created by the code verification server action, or by an explicit "Start application" button for an applicant who is already signed in with no application; it is never created as a side effect of loading a page. The mismatch check lives in the layout. Pages also re-check the session before loading any data, because a layout and its page render in parallel in the App Router, so the layout check alone would not stop a page's data loading.
+
 Intake shell. After first sign in, the applicant's applicants row is created for the chosen property, owned by them. The apply overview lists the steps and their saved state, read from the database, so progress resumes on any device. Step pages are rough scaffolding only (headings, placeholder fields, next and back) until DESIGN.md's design system exists, per DESIGN.md's own rule. Save and resume is real in Phase 1; the forms' visual design is not.
 
 ## DESIGN SYSTEM DELIVERABLE

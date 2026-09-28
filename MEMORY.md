@@ -5,7 +5,22 @@ Living state file. Update this at the end of every work session, regardless of h
 ## CURRENT PHASE
 
 Phase 0, foundation: complete.
-Phase 1, architecture and shell: in progress. Steps 1 to 7 of PHASE-1-SPEC.md's order of work are done. Step 8, the Next.js tenant resolution, theming, auth, and intake shell, is next.
+Phase 1, architecture and shell: in progress. Steps 1 to 7 of PHASE-1-SPEC.md's order of work are done. Step 8, the Next.js shell, is built, with open items listed below. Step 9's second tenant check has passed as a builder check over HTTP; the Playwright version is pending.
+
+Design system (2026-09-28): the UX and Interface Skill ran as a background sub-agent and wrote DESIGN.md's visual design system, screen specifications, and save and resume sections. Tenant tokens are exactly the three theme_configs colors, and accent is decoration only. Measured: Cedar Row contrast on primary is 9.15:1, and accent on white is 3.13:1, which fails as text. Focus rings use the text color, never a tenant color. It proposed no token additions.
+
+Step 8 (2026-09-28): the shell covers proxy.ts session refresh, per request tenant resolution with Zod validated theme injection, the operator landing with property cards, email one time code sign in (the email is held in an httpOnly cookie, never in the URL), the application overview, five step pages (household is real and saves to the database; the others are scaffolds per DESIGN.md), the different property manager page, the neutral 404, and the theming preview with measured contrast. Typecheck and lint are clean.
+
+Builder checks, run against a real dev server with real sessions from @supabase/ssr:
+- Correct status codes and redirects on every route.
+- A second operator inserted by SQL rendered its own theme and property, with no Cedar Row content. A SQL color change showed on the next request.
+- A signed in applicant saw the start form, then the overview and household step.
+- A tenant B session on cedar-row pages saw only the mismatch page, with no application data.
+
+Open items for step 8, not yet verified:
+1. User action: the fairview-dev email template must include {{ .Token }} for the code to appear in the email, and the built in Supabase email sender is heavily rate limited. The browser round trip through the server actions (send code, verify, add household member) has not been run.
+2. The Playwright theming check in PHASE-1-SPEC.md is not built. Browser downloads are very large on this machine's slow connection (npm about 28 KB/s); the HTTP check above covers the rendered CSS but not computed styles.
+3. Not built in Phase 1: removing a household member (no delete policy exists), and the unsaved changes prompt from DESIGN.md.
 
 Step 7 (2026-09-28): isolation suite built in tests/isolation/ and run twice against fairview-dev. Final run: 24 test groups, 274 of 274 recorded checks passed. This is a builder run, not vetting evidence. On review of the first run's report, one check (Y1.1) had passed for the wrong reason. It was rejected by a duplicate program enrollment rather than by tenant isolation. It was fixed to use a program tenant B's property is not enrolled in, and now fails on the composite tenant foreign key as intended. Teardown was confirmed to leave the database exactly at seed state. PHASE-1-SPEC.md was clarified: the cross tenant read tests cover the ten private tables, because theme_configs, properties, and property_programs are public by design. Setup adds A3, an applicant with no application, and AA, a tenant A admin.
 
