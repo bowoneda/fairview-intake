@@ -15,19 +15,19 @@ Phase 0 status: complete.
 
 ## PHASE 1: ARCHITECTURE AND SHELL
 
-[ ] Separate development and staging Supabase environments exist with distinct keys, set up before any schema work, and development keys confirmed distinct from every other environment's.
-[ ] Multi tenant Supabase schema created with tenant_id on every tenant scoped table.
-[ ] Row Level Security policy present on every tenant scoped table.
-[ ] Cross tenant read attempt, performed as an actual query by two simulated tenant users, returns zero rows.
-[ ] Cross tenant write attempt, same method, is rejected.
-[ ] Next.js intake shell resolves the operator from the URL slug and renders its properties (building parameters) from the database.
-[ ] A second, dummy tenant can be inserted and its own theme renders at its own slug without a code change.
-[ ] Platform reference tables (tenants, programs, program_rule_sets, ami_schedules) have RLS enabled with no client write path, confirmed by an attempted write.
-[ ] UX and Interface Skill's design system and intake flow specification produced, DESIGN.md updated accordingly.
-[ ] Security Skill's early tenant isolation pass complete, no unresolved high severity finding.
-[ ] Genericization check from RULES.md run, exact command as written there, no output.
+[x] Separate development and staging Supabase environments exist with distinct keys, set up before any schema work, and development keys confirmed distinct from every other environment's.
+[x] Multi tenant Supabase schema created with tenant_id on every tenant scoped table.
+[x] Row Level Security policy present on every tenant scoped table.
+[x] Cross tenant read attempt, performed as an actual query by two simulated tenant users, returns zero rows.
+[x] Cross tenant write attempt, same method, is rejected.
+[x] Next.js intake shell resolves the operator from the URL slug and renders its properties (building parameters) from the database.
+[x] A second, dummy tenant can be inserted and its own theme renders at its own slug without a code change.
+[x] Platform reference tables (tenants, programs, program_rule_sets, ami_schedules) have RLS enabled with no client write path, confirmed by an attempted write.
+[x] UX and Interface Skill's design system and intake flow specification produced, DESIGN.md updated accordingly.
+[x] Security Skill's early tenant isolation pass complete, no unresolved high severity finding.
+[x] Genericization check from RULES.md run, exact command as written there, no output.
 
-Phase 1 status: in progress. Schema and seed applied to fairview-dev; no checklist item is marked, since items are marked only after the vetting sub-agent verifies them.
+Phase 1 status: complete, 2026-09-28. Every item independently verified by the Master Vetting sub-agent; evidence in PHASE_1_COMPLETE.md.
 
 ## PHASE 2: FINANCIAL INGESTION
 
