@@ -38,7 +38,13 @@ Steps 3 and 4 done, 2026-09-28.
 - Fixtures come from scripts/make_document_fixtures.py, with expected.json as the answer key.
 - document-ingest is deployed with `supabase functions deploy --use-api` (no Docker) and verify_jwt=false in config.toml. The gateway cannot verify this project's ES256 tokens, so each function verifies with getClaims.
 - Integration test (npm run test:integration) against real Textract in eu-west-1 (this confirms Queries works there): 6 of 6 passed. The paystub, W-2, and Schedule C records exactly match the answer key. No SSN, person's name, or raw response is stored. The two page PDF is refused with 422 and no record is created. No token gives 401; another applicant's document gives 404. Each run makes 3 billable Textract calls.
-Next: step 6 (Plaid, moved ahead of Argyle while Argyle's approval is pending): plaid-link-token, plaid-exchange, plaid-webhook with ES256 verification, and recurring transfer detection.
+Step 6, Plaid, done 2026-09-28.
+- Deviation from the spec, recorded here and to be folded into PHASE-2-SPEC.md: recurring detection uses our own deterministic detector (supabase/functions/_shared/recurring.ts), not Plaid's /transactions/recurring/get. Plaid's documentation does not confirm its recurring endpoint works on Sandbox custom user data, and an auditor can re-run our rule. The criteria are the spec's (payment app inflows, at least 3 in 180 days, regular band, active), plus semi-monthly by day of month clustering.
+- Functions: plaid-link-token, plaid-exchange, plaid-webhook (ES256, kid cache, 5 minute iat, constant time body hash, recorded once), and plaid-sandbox. plaid-sandbox is sandbox only and replaces the Link UI for tests; the Plaid secret never leaves Edge Function secrets.
+- Migration 1100 adds provider references for idempotent upserts.
+- Integration test against the real Plaid Sandbox (tests/integration/plaid.test.ts): 6 of 6. It caught and fixed two defects: Plaid's 90 day default history versus the needed 180 days, and forged webhook rejections colliding on one key.
+- Unit tests: 99.
+Remaining Phase 2: the ingestion-retry scheduler for failed webhook events; unit tests for the webhook verification branches that need a key we control (stale iat, body mismatch); Argyle (awaiting approval; else Pinwheel); the Income, Assets, and Documents intake UI; re-running the isolation suite after migrations 1000 and 1100; the Security Skill pass; and the vetting sub-agent.
 
 Next action: the user actions in PHASE-2-SPEC.md, USER ACTIONS: Plaid sandbox, Argyle sandbox, an AWS IAM user limited to Textract (billed per page; confirm cost), and a Supabase access token for function deploys. Then run the CONFIRM AT BUILD checks. Also confirm the qa-test-agent skill can produce TESTS.md shaped output, per CLAUDE.md.
 
