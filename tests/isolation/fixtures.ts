@@ -13,7 +13,10 @@ const EMAIL_DOMAIN = "@example.test";
 export const PRIVATE_TABLES = [
   "users", "applicants", "household_members", "income_sources", "income_records", "asset_records",
   "calculated_determinations", "generated_documents", "workflow_state", "audit_log",
+  "provider_connections", "applicant_documents",
 ] as const;
+
+export const DOCUMENTS_BUCKET = "applicant-documents";
 export type PrivateTable = (typeof PRIVATE_TABLES)[number];
 
 /** Tenant scoped tables that are public by design; isolation for these means write isolation. */
@@ -24,6 +27,7 @@ export const REFERENCE_TABLES = ["tenants", "programs", "program_rule_sets", "am
 const APPLICANT_TABLES = [
   "applicants", "household_members", "income_sources", "income_records", "asset_records",
   "calculated_determinations", "generated_documents", "workflow_state", "audit_log",
+  "provider_connections", "applicant_documents",
 ] as const;
 
 export type UserKey = "A1" | "A2" | "A3" | "RA" | "AA" | "B1" | "RB" | "NOROW";
@@ -47,6 +51,8 @@ export interface Fixtures {
   users: Record<UserKey, Actor>;
   /** rows[table][applicantKey] = row id of the fixture row for that applicant. */
   rows: Record<string, Partial<Record<"A1" | "A2" | "B1", string>>>;
+  /** Storage object path of each applicant's fixture document. */
+  objects: Partial<Record<"A1" | "A2" | "B1", string>>;
 }
 
 const password = () => `Iso-${crypto.randomUUID()}-a1A!`;
@@ -81,12 +87,21 @@ export async function purge(db: PgClient, svc: SupabaseClient): Promise<void> {
   const { rows: tb } = await db.query<{ id: string }>(`select id from public.tenants where slug = $1`, [TENANT_B_SLUG]);
   const tenantB = tb[0]?.id ?? null;
 
+  const { rows: objs } = await db.query<{ name: string }>(
+    `select name from storage.objects where bucket_id = $1 and (storage.foldername(name))[2] in
+       (select id::text from public.applicants where user_id = any($2::uuid[]) or tenant_id = $3)`,
+    [DOCUMENTS_BUCKET, ids, tenantB]);
+  if (objs.length) {
+    const { error } = await svc.storage.from(DOCUMENTS_BUCKET).remove(objs.map((o) => o.name));
+    if (error) throw new Error(`storage purge: ${error.message}`);
+  }
+
   await db.query("begin");
   const apps = `(select id from public.applicants where user_id = any($1::uuid[]) or tenant_id = $2)`;
   await db.query(`delete from public.audit_log where actor_id = any($1::uuid[]) or tenant_id = $2`, [ids, tenantB]);
   await db.query(`delete from public.workflow_state where applicant_id in ${apps} or actor_id = any($1::uuid[])`, [ids, tenantB]);
   for (const t of ["generated_documents", "calculated_determinations", "income_records", "income_sources",
-                   "asset_records", "household_members"]) {
+                   "asset_records", "applicant_documents", "provider_connections", "household_members"]) {
     await db.query(`delete from public.${t} where applicant_id in ${apps}`, [ids, tenantB]);
   }
   await db.query(`delete from public.applicants where user_id = any($1::uuid[]) or tenant_id = $2`, [ids, tenantB]);
@@ -158,6 +173,7 @@ export async function setup(): Promise<{ fx: Fixtures; db: PgClient; svc: Supaba
 
   // One row per applicant in every per applicant table.
   const rows: Fixtures["rows"] = Object.fromEntries(APPLICANT_TABLES.map((t) => [t, {}]));
+  const objects: Fixtures["objects"] = {};
   const seedApplicant = async (key: "A1" | "A2" | "B1", tenant: string, property: string, staffId: string) => {
     const userId = created[key].id;
     const app = (await one(`insert into public.applicants (tenant_id, user_id, property_id, contact_email)
@@ -186,9 +202,22 @@ export async function setup(): Promise<{ fx: Fixtures; db: PgClient; svc: Supaba
                            values ($1, $2, 'intake', 'fixture', $3) returning id`, [tenant, app, staffId])).id;
     const audit = (await one(`insert into public.audit_log (tenant_id, actor_id, action, target_table, target_id)
                               values ($1, $2, 'fixture', 'applicants', $3) returning id`, [tenant, staffId, app])).id;
+    const connection = (await one(
+      `insert into public.provider_connections (tenant_id, applicant_id, household_member_id, provider, provider_ref, status, access_token_encrypted)
+       values ($1, $2, $3, 'plaid', $4, 'ingested', app.encrypt_secret('fixture-access-token')) returning id`,
+      [tenant, app, member, `fixture-item-${key}-${Date.now()}`])).id;
+    const objectPath = `${tenant}/${app}/fixture-${key}.png`;
+    const { error: upErr } = await svc.storage.from(DOCUMENTS_BUCKET)
+      .upload(objectPath, Buffer.from(`fixture ${key}`), { contentType: "image/png" });
+    if (upErr) throw new Error(`fixture upload ${key}: ${upErr.message}`);
+    objects[key] = objectPath;
+    const document = (await one(
+      `insert into public.applicant_documents (tenant_id, applicant_id, household_member_id, document_kind, storage_path, mime_type, byte_size)
+       values ($1, $2, $3, 'paystub', $4, 'image/png', 11) returning id`, [tenant, app, member, objectPath])).id;
     Object.entries({ applicants: app, household_members: member, income_sources: source, income_records: record,
                      asset_records: asset, calculated_determinations: det, generated_documents: doc,
-                     workflow_state: wf, audit_log: String(audit) })
+                     workflow_state: wf, audit_log: String(audit), provider_connections: connection,
+                     applicant_documents: document })
       .forEach(([t, id]) => { rows[t][key] = id; });
   };
   await seedApplicant("A1", tenantA, propertyA, created.RA.id);
@@ -202,5 +231,5 @@ export async function setup(): Promise<{ fx: Fixtures; db: PgClient; svc: Supaba
     users[p.key] = { key: p.key, id: c.id, email: c.email, password: c.password, client: await signIn(c.email, c.password) };
   }
 
-  return { fx: { tenantA, tenantB, propertyA, propertyB, programId: program.id, unenrolledProgramId, users, rows }, db, svc };
+  return { fx: { tenantA, tenantB, propertyA, propertyB, programId: program.id, unenrolledProgramId, users, rows, objects }, db, svc };
 }

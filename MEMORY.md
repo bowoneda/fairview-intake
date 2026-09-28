@@ -18,6 +18,22 @@ Key decisions:
 - The raw Textract response is never stored; provider payloads are stored redacted.
 PROCESS-RULES.md Phase 2 gained four gate items: shape identity, new table RLS, the recurring transfer rule, and no stored PII or raw responses.
 
+User action status (2026-09-28):
+- Plaid: done. PLAID_CLIENT_ID, PLAID_SECRET (Sandbox), and PLAID_ENV=sandbox are saved by the user in fairview-dev Edge Function secrets. They are not yet verified; they will be verified when plaid-link-token is first deployed.
+- Argyle: account application under review by Argyle (typically within 24 hours). When approved, set ARGYLE_API_KEY_ID, ARGYLE_API_KEY_SECRET, ARGYLE_WEBHOOK_SECRET (generated with `openssl rand -hex 32 | clip`, never shown in chat), and ARGYLE_ENV=sandbox. If declined or slow, fall back to Pinwheel, which the listing allows ("Argyle (or Pinwheel)"); only the payroll functions and their webhook verification change.
+- Build order adjusted for this: Textract, then Plaid, then Argyle (spec steps 5 and 6 swapped).
+- AWS: done. The user's sign in issue was resolved. AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, and AWS_REGION=eu-west-1 are in Edge Function secrets, for an IAM user limited to textract:AnalyzeDocument in eu-west-1 with a billing alert. Textract Queries in eu-west-1 is confirmed by AWS's May 2023 announcement; a real call at build will prove it.
+- Supabase access token: in .env.local as SUPABASE_ACCESS_TOKEN, verified by listing functions and secret names. Notepad saved the file with CRLF line endings, which corrupts values in shell use; the file was normalized to LF. Shell and PowerShell clipboard reads hung in this environment, so enter secrets through Notepad.
+
+Phase 2 build progress (2026-09-28). Order of work step 2 is done: migration 1000.
+- New tables provider_connections, webhook_events (platform, zero client access), and applicant_documents, plus the private applicant-documents bucket with tenant and applicant prefix storage policies.
+- provider_token_key in Vault, with app.encrypt_secret and decrypt_secret and the store_provider_token and read_provider_token wrappers, all service role only.
+- income_sources gains status, recurring transfer fields, and family_statement with a guard trigger; confirm_income_source is staff only, requires a reason, and is audited.
+- income_records has the normalized columns; ytd_amount was renamed to ytd_gross.
+- The live catalog was verified.
+- The isolation suite was extended in the same change (T1 to T5): token column unreadable, webhook_events unreadable, no client connection writes, storage isolation (cross access returns "Object not found", so existence is not leaked), and the statement and confirmation flow. Result: 29 of 29 tests, 338 of 338 checks, with teardown back to the user's real data only.
+Next: step 3, the shared normalized schema and redaction module, then the Textract pipeline.
+
 Next action: the user actions in PHASE-2-SPEC.md, USER ACTIONS: Plaid sandbox, Argyle sandbox, an AWS IAM user limited to Textract (billed per page; confirm cost), and a Supabase access token for function deploys. Then run the CONFIRM AT BUILD checks. Also confirm the qa-test-agent skill can produce TESTS.md shaped output, per CLAUDE.md.
 
 Phase 1 build log, retained below for reference.

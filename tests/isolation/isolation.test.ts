@@ -3,7 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Client as PgClient } from "pg";
 import { PROJECT_REF, anonClient } from "./env";
 import {
-  PRIVATE_TABLES, PUBLIC_TENANT_TABLES, REFERENCE_TABLES, purge, setup,
+  DOCUMENTS_BUCKET, PRIVATE_TABLES, PUBLIC_TENANT_TABLES, REFERENCE_TABLES, purge, setup,
   type Actor, type Fixtures, type PrivateTable,
 } from "./fixtures";
 import { describe, record, writeReport, type Evidence } from "./report";
@@ -399,6 +399,82 @@ group("within tenant escalation (Security Skill Phase 1 early pass)", () => {
     check({ id: "E4", actor: "RA", action: "reviewer moves the application to under_review (control)", expected: "1 row",
             actual: `${describe(staff)}; stored: ${await statusOf()}`,
             pass: !staff.error && rowsOf(staff).length === 1 && (await statusOf()) === "under_review" });
+  });
+});
+
+group("phase 2 surfaces: provider tokens, webhooks, documents, statements", () => {
+  it("T1-T3: tokens and webhook events are unreadable; clients cannot create connections", async () => {
+    const a1 = fx.users.A1;
+    const token = await a1.client.from("provider_connections").select("access_token_encrypted").eq("id", fx.rows.provider_connections.A1!);
+    check({ id: "T1", actor: "A1", action: "select own provider_connections.access_token_encrypted", expected: "rejected",
+            actual: describe(token), pass: rejected(token) });
+    for (const [who, client] of [["A1", a1.client], ["RA", fx.users.RA.client], ["anon", anonClient()]] as const) {
+      const res = await client.from("webhook_events").select("id").limit(1);
+      check({ id: "T2", actor: who, action: "select webhook_events", expected: "rejected or 0 rows",
+              actual: describe(res), pass: rejectedOrNoRows(res) });
+    }
+    const ins = await a1.client.from("provider_connections").insert({
+      tenant_id: fx.tenantA, applicant_id: fx.rows.applicants.A1, household_member_id: fx.rows.household_members.A1,
+      provider: "plaid", provider_ref: "t3-probe" });
+    check({ id: "T3", actor: "A1", action: "insert provider_connections", expected: "rejected", actual: describe(ins), pass: rejected(ins) });
+  });
+
+  it("T4: document storage is isolated by tenant and applicant", async () => {
+    const own = await fx.users.A1.client.storage.from(DOCUMENTS_BUCKET).download(fx.objects.A1!);
+    check({ id: "T4.1", actor: "A1", action: "download own document (control)", expected: "downloaded",
+            actual: own.error ? `error: ${own.error.message}` : `${own.data?.size} bytes`, pass: !own.error && (own.data?.size ?? 0) > 0 });
+    for (const [who, client, target] of [
+      ["A1", fx.users.A1.client, fx.objects.B1!], ["RA", fx.users.RA.client, fx.objects.B1!], ["A1", fx.users.A1.client, fx.objects.A2!],
+      ["B1", fx.users.B1.client, fx.objects.A1!], ["anon", anonClient(), fx.objects.A1!],
+    ] as const) {
+      const res = await client.storage.from(DOCUMENTS_BUCKET).download(target);
+      const whose = target === fx.objects.B1 ? "B1" : target === fx.objects.A2 ? "A2" : "A1";
+      check({ id: "T4.2", actor: who, action: `download ${whose}'s document`, expected: "denied",
+              actual: res.error ? `error: ${res.error.message}` : `${res.data?.size} bytes`, pass: Boolean(res.error) });
+    }
+    const intoB = await fx.users.A1.client.storage.from(DOCUMENTS_BUCKET)
+      .upload(`${fx.tenantB}/${fx.rows.applicants.B1}/t4-probe.png`, Buffer.from("x"), { contentType: "image/png" });
+    check({ id: "T4.3", actor: "A1", action: "upload into B1's folder", expected: "denied",
+            actual: intoB.error ? `error: ${intoB.error.message}` : "uploaded", pass: Boolean(intoB.error) });
+    const intoOwn = await fx.users.A1.client.storage.from(DOCUMENTS_BUCKET)
+      .upload(`${fx.tenantA}/${fx.rows.applicants.A1}/t4-own.png`, Buffer.from("x"), { contentType: "image/png" });
+    check({ id: "T4.4", actor: "A1", action: "upload into own folder (control)", expected: "uploaded",
+            actual: intoOwn.error ? `error: ${intoOwn.error.message}` : "uploaded", pass: !intoOwn.error });
+  });
+
+  it("T5: a detected transfer is stated by the family and confirmed only by staff", async () => {
+    const mk = async (applicant: "A1" | "A2") => (await ownerScalar(
+      `insert into public.income_sources (tenant_id, applicant_id, household_member_id, source_type, connection_method, status, counterparty_label, frequency, average_amount, occurrence_count)
+       values ($1, $2, $3, 'recurring_transfer', 'plaid', 'awaiting_family_statement', 'Venmo', 'monthly', 200.00, 6) returning id`,
+      [fx.tenantA, fx.rows.applicants[applicant], fx.rows.household_members[applicant]])).id as string;
+    const s1 = await mk("A1"), s2 = await mk("A2");
+    const stateOf = async (id: string) => ownerScalar(`select status, family_statement, family_statement_at from public.income_sources where id = $1`, [id]);
+
+    const stated = await fx.users.A1.client.from("income_sources").update({ family_statement: "regular_contribution" }).eq("id", s1).select("id");
+    const after = await stateOf(s1);
+    check({ id: "T5.1", actor: "A1", action: "state own detected transfer (control)", expected: "1 row, status awaiting_review, stamped",
+            actual: `${describe(stated)}; status ${after.status}, stamped ${Boolean(after.family_statement_at)}`,
+            pass: !stated.error && rowsOf(stated).length === 1 && after.status === "awaiting_review" && Boolean(after.family_statement_at) });
+    const selfConfirm = await fx.users.A1.client.from("income_sources").update({ status: "confirmed_excluded" }).eq("id", s1).select("id");
+    check({ id: "T5.2", actor: "A1", action: "set own source status directly", expected: "rejected, unchanged",
+            actual: `${describe(selfConfirm)}; status ${(await stateOf(s1)).status}`,
+            pass: rejected(selfConfirm) && (await stateOf(s1)).status === "awaiting_review" });
+    const other = await fx.users.A1.client.from("income_sources").update({ family_statement: "life_event_gift" }).eq("id", s2).select("id");
+    check({ id: "T5.3", actor: "A1", action: "state A2's transfer", expected: "0 rows, unchanged",
+            actual: `${describe(other)}; A2 statement ${(await stateOf(s2)).family_statement}`,
+            pass: rejectedOrNoRows(other) && (await stateOf(s2)).family_statement === null });
+    const applicantRpc = await fx.users.A1.client.rpc("confirm_income_source", { p_source_id: s1, p_outcome: "confirmed_excluded", p_reason: "T5" });
+    check({ id: "T5.4", actor: "A1", action: "confirm_income_source as an applicant", expected: "rejected",
+            actual: describe(applicantRpc), pass: rejected(applicantRpc) });
+    const crossRpc = await fx.users.RB.client.rpc("confirm_income_source", { p_source_id: s1, p_outcome: "confirmed_excluded", p_reason: "T5 cross" });
+    check({ id: "T5.5", actor: "RB", action: "confirm tenant A's source as tenant B staff", expected: "rejected, unchanged",
+            actual: `${describe(crossRpc)}; status ${(await stateOf(s1)).status}`,
+            pass: rejected(crossRpc) && (await stateOf(s1)).status === "awaiting_review" });
+    const staff = await fx.users.RA.client.rpc("confirm_income_source", { p_source_id: s1, p_outcome: "confirmed_income", p_reason: "T5 regular contribution confirmed" });
+    const audit = await ownerScalar(`select count(*)::int n from public.audit_log where action = 'confirm_income_source' and target_id = $1 and actor_id = $2`, [s1, fx.users.RA.id]);
+    check({ id: "T5.6", actor: "RA", action: "reviewer confirms with a reason (control)", expected: "confirmed_income, audited",
+            actual: `${staff.error ? describe(staff) : "ok"}; status ${(await stateOf(s1)).status}; audit rows ${audit.n}`,
+            pass: !staff.error && (await stateOf(s1)).status === "confirmed_income" && audit.n === 1 });
   });
 });
 
