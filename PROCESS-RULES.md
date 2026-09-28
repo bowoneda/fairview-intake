@@ -27,7 +27,7 @@ Phase 0 status: complete.
 [ ] Security Skill's early tenant isolation pass complete, no unresolved high severity finding.
 [ ] Genericization check from RULES.md run, exact command as written there, no output.
 
-Phase 1 status: in progress.
+Phase 1 status: in progress. Schema and seed applied to fairview-dev; no checklist item is marked, since items are marked only after the vetting sub-agent verifies them.
 
 ## PHASE 2: FINANCIAL INGESTION
 

@@ -5,7 +5,19 @@ Living state file. Update this at the end of every work session, regardless of h
 ## CURRENT PHASE
 
 Phase 0, foundation: complete.
-Phase 1, architecture and shell: in progress. Step 1 of PHASE-1-SPEC.md's order of work is done.
+Phase 1, architecture and shell: in progress. Steps 1 to 4 and step 6 of PHASE-1-SPEC.md's order of work are done. Step 5, a user action, is next: enable the Custom Access Token Hook in the fairview-dev dashboard.
+
+Step 3 (2026-09-28): Next.js 16.3.6 scaffold with Supabase JS/SSR, Zod, React Hook Form, Vitest 5, and Supabase CLI 2.118.0. @types/node is pinned to ^22 to match the Node 22.14 runtime, because Vitest 5 rejects ^20. Committed as 7025674. The npm registry is very slow from this machine (about 28 KB/s). Use --fetch-timeout and --fetch-retries on installs, and don't use --prefer-offline, which served a stale package listing.
+
+Steps 4 and 6 (2026-09-28): eight migrations applied to fairview-dev through the session pooler with `supabase db push --db-url ... --include-seed`, plus the seed. Builder checks against the live catalog, which are not vetting evidence:
+- All 17 public tables have RLS enabled. tenant_id is on all 13 tenant scoped tables and absent only on the 4 reference tables.
+- anon holds SELECT on exactly the 5 public tables.
+- No client role can write the encrypted columns.
+- The reference tables are writable only by service_role.
+- The Vault pii_key exists.
+- Seed counts: 1 tenant, 3 programs, 3 rule sets, 6 AMI rows, 1 theme, 2 properties, 3 property programs.
+- A real sign-up smoke test created an applicant in cedar-row through the trigger. The throwaway user was then deleted.
+Finding fixed in migration 800: every app schema function, including encrypt_pii, was executable by PUBLIC. Postgres grants that by default, and a schema scoped default privilege cannot remove it. Every future function outside public must revoke PUBLIC execute explicitly. The global default for the postgres role has been removed.
 
 ## WHAT ACTUALLY EXISTS RIGHT NOW
 
