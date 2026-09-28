@@ -203,8 +203,8 @@ Purpose: let an applicant find the property they are applying to. Unauthenticate
 
 Purpose: email one time code, which both signs in a returning applicant and signs up a new one. The property name is shown so the person knows what they are applying to.
 - If the property parameter is missing, unknown, inactive, or belongs to another operator, redirect to /[tenant] with an info banner "Choose a property to apply to."
-- State 1, enter email: h1 "Apply for [property name]". Email input (label "Email address (required)", hint "We will send you a 6 digit code. No password needed."). Primary button "Send code".
-- State 2, enter code: h1 "Check your email". Text "We sent a code to [email]." Code input (label "6 digit code (required)"). Primary button "Continue". Quiet buttons "Send a new code" (disabled with a visible countdown for 60 seconds after sending) and "Use a different email".
+- State 1, enter email: h1 "Apply for [property name]". Email input (label "Email address (required)", hint "We will email you a sign in code. No password needed."). Primary button "Send code".
+- State 2, enter code: h1 "Check your email". Text "We sent a code to [email]." Code input (label "Code from the email (required)"; accepts 6 to 8 digits, since the code length is a Supabase Auth project setting). Primary button "Continue". Quiet buttons "Send a new code" (disabled with a visible countdown for 60 seconds after sending) and "Use a different email".
 - Errors: invalid email format, wrong or expired code ("That code did not work. Codes expire after 1 hour. Send a new code."), rate limited ("Too many attempts. Wait a minute and try again.").
 - On success, go to /[tenant]/apply?property=[slug].
 

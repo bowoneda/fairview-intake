@@ -22,7 +22,8 @@ export interface SignInState {
 const EMAIL_COOKIE = "intake_email";
 
 const emailSchema = z.string().trim().toLowerCase().email();
-const codeSchema = z.string().trim().regex(/^\d{6}$/);
+// The code length is a project setting in Supabase Auth (6 to 8 digits here), so accept any of them.
+const codeSchema = z.string().trim().regex(/^\d{6,8}$/);
 
 const RATE_LIMITED = "Too many attempts. Wait a minute and try again.";
 
@@ -57,7 +58,7 @@ export async function verifyCode(_prev: SignInState, form: FormData): Promise<Si
   const email = cookieStore.get(EMAIL_COOKIE)?.value;
   if (!email) return { step: "email", error: "Your code expired. Enter your email again." };
   const code = codeSchema.safeParse(form.get("code"));
-  if (!code.success) return { step: "code", email, error: "Enter the 6 digit code from the email." };
+  if (!code.success) return { step: "code", email, error: "Enter the code from the email, numbers only." };
 
   const db = await sessionClient();
   const { error } = await db.auth.verifyOtp({ email, token: code.data, type: "email" });

@@ -31,7 +31,7 @@ export function SignInForm({ tenant, property, propertyName }: { tenant: string;
         <h1 className="text-2xl font-semibold sm:text-3xl">Apply for {propertyName}</h1>
         <form action={sendCode} className="flex flex-col gap-6" noValidate>
           <input type="hidden" name="tenant" value={tenant} />
-          <Field id="email" label="Email address (required)" hint="We will send you a 6 digit code. No password needed." error={error}>
+          <Field id="email" label="Email address (required)" hint="We will email you a sign in code. No password needed." error={error}>
             <input id="email" name="email" type="email" autoComplete="email" required className={inputClass(Boolean(error))}
                    aria-describedby={describedBy("email", "hint", error)} aria-invalid={Boolean(error)} />
           </Field>
@@ -51,8 +51,8 @@ export function SignInForm({ tenant, property, propertyName }: { tenant: string;
       <form action={checkCode} className="flex flex-col gap-6" noValidate>
         <input type="hidden" name="tenant" value={tenant} />
         <input type="hidden" name="property" value={property} />
-        <Field id="code" label="6 digit code (required)" error={error}>
-          <input id="code" name="code" inputMode="numeric" autoComplete="one-time-code" pattern="\d{6}" maxLength={6} required
+        <Field id="code" label="Code from the email (required)" error={error}>
+          <input id="code" name="code" inputMode="numeric" autoComplete="one-time-code" pattern="\d{6,8}" maxLength={8} required
                  className={`${inputClass(Boolean(error))} tracking-widest`}
                  aria-describedby={describedBy("code", undefined, error)} aria-invalid={Boolean(error)} />
         </Field>
