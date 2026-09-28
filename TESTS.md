@@ -42,4 +42,6 @@ A single scenario walking a simulated applicant from intake, through a Plaid or 
 
 ## PENDING: SECURITY TEST SCOPE
 
-The cross tenant read and write attempts described in SECURITY.md are tests in their own right and should be written as actual automated tests, not performed once manually and forgotten. Not yet built, first version expected at the end of Phase 1.
+The cross tenant read and write attempts described in SECURITY.md are tests in their own right and should be written as actual automated tests, not performed once manually and forgotten.
+
+Built 2026-09-28: tests/isolation/, run with `npm run test:isolation` against fairview-dev. It implements PHASE-1-SPEC.md's procedure: positive controls (P1 to P4, Y0), cross tenant reads (X1 to X4), cross tenant writes (W1 to W5), applicant to applicant within one tenant (AP1, AP2), cross operator property and branding writes (Y1, Y2), reference table writes (R1), anonymous access (N1 to N3), append only tables (L1), and claim source attacks (C1 to C3). It signs in real users with the publishable key. Every check records the observed row count or error code to tests/isolation/reports/ (gitignored, regenerated per run). Teardown returns the database to its seed state. This is permanent: it is re-run at Phase 4 against the complete application and at Phase 5 against staging.

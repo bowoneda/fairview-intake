@@ -256,15 +256,17 @@ Automated with Vitest in tests/isolation/, run against fairview-dev through real
 
 Setup (tests/isolation/setup.ts, the only code that uses the secret key): create tenant B, harborpoint, Harbor Point Communities, with a visibly different theme and one property with one property_programs row. Create, through the Admin API with email pre-confirmed so no email is sent: in tenant A (cedar-row), applicant A1, applicant A2, and reviewer RA; in tenant B, applicant B1 and reviewer RB. For each applicant, seed one row in every tenant scoped table, written with the secret key, since some tables have no client write path. Record every seeded id. Sign each user in with the publishable key to get a real session.
 
+Table sets. The read tests below cover the ten private tenant scoped tables: users, applicants, household_members, income_sources, income_records, asset_records, calculated_determinations, generated_documents, workflow_state, audit_log. The other three tenant scoped tables (theme_configs, properties, property_programs) are public by design and readable across tenants, so for them isolation means write isolation, covered by Y1, Y2, and N3. Setup also creates A3, a tenant A applicant with no application yet, used by Y1 so that the one application per user constraint cannot be what rejects the attempt. It also creates AA, an admin of tenant A.
+
 Positive controls, which must pass or every negative result below is meaningless:
 P1. A1 reads their own applicants, household_members, income_sources, income_records, asset_records, calculated_determinations, generated_documents, and workflow_state rows: each returns exactly the seeded row count, not zero.
-P2. RA reads every tenant scoped table and gets tenant A's rows for both A1 and A2.
+P2. RA reads every private tenant scoped table and gets tenant A's rows for both A1 and A2.
 P3. A1 inserts a household_members row on their own application: succeeds.
 P4. A1 updates their own household_members row: one row affected.
 
 Cross tenant reads, zero rows each:
-X1. A1, then RA, select every tenant scoped table filtered to tenant B's tenant_id: zero rows.
-X2. A1, then RA, select every tenant scoped table unfiltered: only tenant A rows, none of tenant B's seeded ids.
+X1. A1, then RA, select every private tenant scoped table filtered to tenant B's tenant_id: zero rows.
+X2. A1, then RA, select every private tenant scoped table unfiltered: only tenant A rows, none of tenant B's seeded ids.
 X3. A1 and RA each select tenant B's seeded row ids by primary key: zero rows.
 X4. The same three checks run in the other direction, as B1 and RB against tenant A.
 
@@ -293,7 +295,7 @@ Platform reference tables:
 R1. A1, RA, and an admin of tenant A each attempt insert, update, and delete on tenants, programs, program_rule_sets, and ami_schedules: all rejected, confirmed unchanged by a secret key read.
 
 Cross tenant properties:
-Y1. An admin of tenant A attempts to insert a property_programs row, or an applicants row as A1, pointing at tenant B's property: rejected.
+Y1. AA attempts to insert a property_programs row, and A3 attempts to insert an applicants row, each pointing at tenant B's property: rejected.
 Y2. An admin of tenant A attempts to update tenant B's properties and theme_configs rows: zero rows affected, confirmed unchanged.
 
 Append only:

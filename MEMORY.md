@@ -5,7 +5,11 @@ Living state file. Update this at the end of every work session, regardless of h
 ## CURRENT PHASE
 
 Phase 0, foundation: complete.
-Phase 1, architecture and shell: in progress. Steps 1 to 4 and step 6 of PHASE-1-SPEC.md's order of work are done. Step 5, a user action, is next: enable the Custom Access Token Hook in the fairview-dev dashboard.
+Phase 1, architecture and shell: in progress. Steps 1 to 7 of PHASE-1-SPEC.md's order of work are done. Step 8, the Next.js tenant resolution, theming, auth, and intake shell, is next.
+
+Step 7 (2026-09-28): isolation suite built in tests/isolation/ and run twice against fairview-dev. Final run: 24 test groups, 274 of 274 recorded checks passed. This is a builder run, not vetting evidence. On review of the first run's report, one check (Y1.1) had passed for the wrong reason. It was rejected by a duplicate program enrollment rather than by tenant isolation. It was fixed to use a program tenant B's property is not enrolled in, and now fails on the composite tenant foreign key as intended. Teardown was confirmed to leave the database exactly at seed state. PHASE-1-SPEC.md was clarified: the cross tenant read tests cover the ten private tables, because theme_configs, properties, and property_programs are public by design. Setup adds A3, an applicant with no application, and AA, a tenant A admin.
+
+Step 5 (2026-09-28): the user enabled the Custom Access Token Hook (public.custom_access_token_hook) in the fairview-dev dashboard. Builder check: a real password sign-in with the publishable key produced top level claims tenant_id = the cedar-row tenant id and app_role = applicant. After the user wrote a forged tenant_id and app_role = admin into their own user_metadata and refreshed, the top level claims were unchanged; the forged values appeared only inside user_metadata. The throwaway user was deleted.
 
 Step 3 (2026-09-28): Next.js 16.3.6 scaffold with Supabase JS/SSR, Zod, React Hook Form, Vitest 5, and Supabase CLI 2.118.0. @types/node is pinned to ^22 to match the Node 22.14 runtime, because Vitest 5 rejects ^20. Committed as 7025674. The npm registry is very slow from this machine (about 28 KB/s). Use --fetch-timeout and --fetch-retries on installs, and don't use --prefer-offline, which served a stale package listing.
 
