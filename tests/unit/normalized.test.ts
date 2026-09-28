@@ -42,7 +42,8 @@ describe("normalized income record", () => {
   });
 
   it("rejects a missing key rather than defaulting it", () => {
-    const { ytd_gross: _omit, ...missing } = base;
+    const missing: Partial<NormalizedIncomeRecord> = { ...base };
+    delete missing.ytd_gross;
     expect(() => normalize(missing)).toThrow(/ytd_gross/);
   });
 
