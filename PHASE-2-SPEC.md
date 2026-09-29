@@ -243,3 +243,16 @@ Per PROCESS-RULES.md Phase 2, obtained independently:
 - It tries a cross tenant read of another tenant's document object in storage.
 - It confirms that no raw Textract response, SSN, or full account number is stored anywhere, by querying.
 - It runs the genericization check from RULES.md.
+
+## AS BUILT: DEVIATIONS FROM THIS SPECIFICATION
+
+Recorded during the build, each with its reason. Where these conflict with the sections above, these win.
+
+1. Recurring detection runs on our own deterministic detector (supabase/functions/_shared/recurring.ts), not on Plaid's /transactions/recurring/get. Plaid's documentation does not confirm that endpoint detects patterns in Sandbox custom user data, and an auditor can re-run our rule on the same transactions and get the same answer, which cannot be done with a provider's black box. The criteria are this spec's, plus semi-monthly detection by clustering days of the month, and an explicit as of date (never the clock) so a run is reproducible.
+2. Every provider call uses at least 180 days of history (days_requested), in the sandbox helper as well as the real Link token. Plaid defaults to 90 days, which the integration test showed silently drops the older deposits the rule's lookback needs.
+3. Plaid Sandbox is driven by plaid-sandbox, a function that refuses to run unless PLAID_ENV is sandbox. It creates the sandbox link server side and then runs the same exchange and ingestion code as the real flow, so the Plaid secret never has to leave Edge Function secrets for tests to run.
+4. The gateway's JWT check is off for every function (config.toml). It cannot verify this project's ES256 tokens, so each function verifies the caller itself with getClaims. The webhook functions authenticate by provider signature, and ingestion-retry by a secret generated in the database.
+5. Retries: pg_cron runs every 5 minutes and calls ingestion-retry through pg_net, authenticated by a Vault secret generated in the database. The function base URL is per environment configuration in Vault (functions_base_url), not in a migration, so staging must set its own; PROCESS-RULES.md Phase 5 has the check. Events are claimed atomically (skip locked), so overlapping runs never double process.
+6. Plaid webhook verification lives in a pure module (supabase/functions/_shared/plaid-verify.ts) with the key lookup injected, so the branches that cannot be forged against Plaid (a stale token and a tampered body under a valid signature) are unit tested with keys the tests control.
+7. A benefit letter query set was added to the Textract fallback, because CALC-SPEC-1.md case 4.1 verifies a benefit through an uploaded award letter.
+

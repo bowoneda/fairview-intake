@@ -79,6 +79,7 @@ Phase 4 status: not started.
 [ ] Staging environment deployed on Vercel and Supabase, using credentials distinct from local development.
 [ ] Production environment deployed, or the production promotion runbook written, per the Phase 5 decision recorded in MEMORY.md.
 [ ] Repository handoff documentation written: setup, environments, migrations, running the test suites, and operating runbook.
+[ ] Per environment Vault configuration set in each deployed environment (functions_base_url for the ingestion-retry job), confirmed by a pg_net call from the database job returning 200 in that environment.
 [ ] Deployment Skill's checklist run and passed.
 [ ] Row Level Security re-verified against the actually deployed database, using the same cross tenant query attempt as Phase 1, not assumed to carry over from local development.
 [ ] End to end scenario, intake through signature, run successfully against the deployed environment.

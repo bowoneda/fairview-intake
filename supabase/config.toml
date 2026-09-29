@@ -429,3 +429,6 @@ verify_jwt = false
 
 [functions.plaid-webhook]
 verify_jwt = false
+
+[functions.ingestion-retry]
+verify_jwt = false

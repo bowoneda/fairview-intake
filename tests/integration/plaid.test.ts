@@ -134,6 +134,39 @@ describe("Plaid Sandbox through the deployed functions", () => {
     expect(after).toBe(before);
   });
 
+  it("retries failed processing: re-ingests due events, closes unknown ones, refuses callers without the secret", async () => {
+    const item = (await db.query(`select provider_ref from public.provider_connections where id = $1`, [connectionId])).rows[0].provider_ref;
+    const due = (await db.query(`insert into public.webhook_events (provider, event_id, event_type, provider_ref, signature_valid, status, attempts, next_attempt_at)
+      values ('plaid', $1, 'TRANSACTIONS.SYNC_UPDATES_AVAILABLE', $2, true, 'failed', 1, now() - interval '1 minute') returning id`,
+      [`test-retry-${crypto.randomUUID()}`, item])).rows[0].id;
+    const unknown = (await db.query(`insert into public.webhook_events (provider, event_id, event_type, provider_ref, signature_valid, status, attempts, next_attempt_at)
+      values ('plaid', $1, 'TRANSACTIONS.SYNC_UPDATES_AVAILABLE', $2, true, 'failed', 1, now() - interval '1 minute') returning id`,
+      [`test-retry-${crypto.randomUUID()}`, item.replace(/.$/, "Z")])).rows[0].id;
+
+    expect((await call("ingestion-retry", null, {})).status).toBe(401);
+    expect((await call("ingestion-retry", null, {}, { "x-cron-secret": "guess" })).status).toBe(401);
+
+    // The test reads the secret from Vault as the database owner, exactly as the cron job does.
+    const secret = (await db.query(`select decrypted_secret from vault.decrypted_secrets where name = 'cron_secret'`)).rows[0].decrypted_secret;
+    const r = await call("ingestion-retry", null, {}, { "x-cron-secret": secret });
+    expect(r.status, JSON.stringify(r.body)).toBe(200);
+    const status = async (id: string) => (await db.query(`select status, attempts from public.webhook_events where id = $1`, [id])).rows[0];
+    expect(await status(due)).toEqual({ status: "processed", attempts: 2 });
+    expect(await status(unknown)).toEqual({ status: "ignored", attempts: 2 });
+    const sources = (await db.query(`select count(*)::int n from public.income_sources where provider_connection_id = $1`, [connectionId])).rows[0].n;
+    expect(sources).toBe(1);
+  });
+
+  it("the database job reaches the function through pg_net (the cron wiring, without waiting 5 minutes)", async () => {
+    const before = (await db.query(`select coalesce(max(id), 0)::bigint m from net._http_response`)).rows[0].m;
+    await db.query(`select app.run_ingestion_retry()`);
+    const resp = await waitFor("the pg_net response", async () => {
+      const rows = (await db.query(`select status_code, timed_out, error_msg from net._http_response where id > $1 order by id desc limit 1`, [before])).rows;
+      return rows.length ? rows[0] : null;
+    }, 60_000);
+    expect(resp).toMatchObject({ status_code: 200, timed_out: false });
+  });
+
   it("rejects forged webhooks with 401 and records them as rejected", async () => {
     const body = { webhook_type: "TRANSACTIONS", webhook_code: "SYNC_UPDATES_AVAILABLE", item_id: "forged-item" };
     const b64 = (o: unknown) => Buffer.from(JSON.stringify(o)).toString("base64url");

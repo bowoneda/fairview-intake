@@ -44,7 +44,12 @@ Step 6, Plaid, done 2026-09-28.
 - Migration 1100 adds provider references for idempotent upserts.
 - Integration test against the real Plaid Sandbox (tests/integration/plaid.test.ts): 6 of 6. It caught and fixed two defects: Plaid's 90 day default history versus the needed 180 days, and forged webhook rejections colliding on one key.
 - Unit tests: 99.
-Remaining Phase 2: the ingestion-retry scheduler for failed webhook events; unit tests for the webhook verification branches that need a key we control (stale iat, body mismatch); Argyle (awaiting approval; else Pinwheel); the Income, Assets, and Documents intake UI; re-running the isolation suite after migrations 1000 and 1100; the Security Skill pass; and the vetting sub-agent.
+Also done 2026-09-28:
+- Webhook verification is a pure module with 11 unit tests, covering stale and tampered cases.
+- Retry: migration 1200 (pg_cron every 5 minutes, pg_net, Vault cron_secret, atomic claim_retry_events) and the ingestion-retry function. The dev functions_base_url is set in Vault; staging must set its own (PROCESS-RULES Phase 5).
+- The Plaid integration suite is now 8 of 8, including retry and the end to end pg_net wiring.
+- PHASE-2-SPEC.md has an AS BUILT section listing seven deviations with reasons.
+Remaining Phase 2: Argyle (awaiting approval; else Pinwheel); the Income, Assets, and Documents intake UI; re-running the isolation suite after migrations 1000 and 1100; the Security Skill pass; and the vetting sub-agent.
 
 Next action: the user actions in PHASE-2-SPEC.md, USER ACTIONS: Plaid sandbox, Argyle sandbox, an AWS IAM user limited to Textract (billed per page; confirm cost), and a Supabase access token for function deploys. Then run the CONFIRM AT BUILD checks. Also confirm the qa-test-agent skill can produce TESTS.md shaped output, per CLAUDE.md.
 
