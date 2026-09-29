@@ -203,3 +203,17 @@ Documents are corrected and consistent, and PHASE-1-SPEC.md is written, as of 20
 RESOLVED 2026-09-28: both projects were first created with the same database password. The user reset the fairview-staging password. Builder check, not vetting evidence: first twelve SHA-256 hex characters, dev versus staging, all distinct. Project ref 4eea4a3dcf20 vs 92ed0f63bc17. Publishable key a793f2e7e438 vs 66caa2ff8fbf. Secret key dcb248d64d1e vs 68eafb568b19. Database password ea8c87e7a0bb vs 9b88f5e8eb8f. No staging key or password appears in any project file; only the staging project ref, which is public, appears in this file. The staging values were shared in chat and are therefore in the local session transcript. Rotating the staging secret key before Phase 5 is optional, at the user's discretion. The dev secret key is in .env.local and was verified against the Auth admin endpoint (HTTP 200). The staging secret key was shared in chat but is deliberately not written to any file.
 
 The original step 2 instruction, kept for reference: create the fairview-dev and fairview-staging projects in Supabase and fill in .env.local for development only. Then the schema goes in table by table, each table's RLS in the same migration that creates it, while the UX and Interface Skill's design system work runs in parallel. Invoke MASTER-VETTING-SKILL.md at the close of every phase from here forward, without exception.
+
+## PAYROLL PROVIDER DECISION, 2026-09-28 (Phase 2 is blocked only on this)
+
+Decision by the user: wait for Argyle's approval. Argyle's application was submitted 2026-09-28 and is "under review", typically within 24 hours. Everything else in Phase 2 is built, tested, and security reviewed.
+
+Options considered, so they need not be researched again:
+- Pinwheel (the listing allows "Argyle (or Pinwheel)"). Researched 2026-09-28: its sandbox documentation says access is through a Client Success Manager, not self serve, so switching would likely trade one approval queue for another. Facts for later: webhook header x-pinwheel-signature = "v2=" plus hex HMAC-SHA256 of "v2:{x-timestamp}:" plus the raw body, keyed with the API secret, compared in constant time. The documentation gives no timestamp tolerance, so set our own, as with Plaid (5 minutes). Sandbox test login: user_good / pass_good. Sources: docs.pinwheelapi.com/public/docs/sandbox and /webhook-signature-verification.
+- Plaid's payroll income product, using the Plaid sandbox access already working. It would close the gate fastest, but it departs from the listing's named vendors and would need a logged stack decision. It was not chosen, because a real Argyle or Pinwheel integration carries more weight for this listing. If chosen later, build payroll as a provider neutral adapter: the shared normalized schema already makes each provider a small add on.
+
+When Argyle approves:
+1. The user sets ARGYLE_API_KEY_ID, ARGYLE_API_KEY_SECRET, ARGYLE_WEBHOOK_SECRET (generated in a local shell, never shown in chat), and ARGYLE_ENV=sandbox in fairview-dev Edge Function secrets.
+2. Build argyle-user-token and argyle-webhook, which checks HMAC-SHA512 of the raw body against X-Argyle-Signature in constant time. Put the verification in a pure _shared module with unit tests, as with plaid-verify. Map paystubs through normalize(). Replace the Income step's "coming in a later release" banner with Argyle Link.
+3. Integration test against the Argyle sandbox, a short Security Skill check of the Argyle surface, then the Master Vetting sub-agent for Phase 2.
+
