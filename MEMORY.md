@@ -49,6 +49,14 @@ Also done 2026-09-28:
 - Retry: migration 1200 (pg_cron every 5 minutes, pg_net, Vault cron_secret, atomic claim_retry_events) and the ingestion-retry function. The dev functions_base_url is set in Vault; staging must set its own (PROCESS-RULES Phase 5).
 - The Plaid integration suite is now 8 of 8, including retry and the end to end pg_net wiring.
 - PHASE-2-SPEC.md has an AS BUILT section listing seven deviations with reasons.
+Intake UI done 2026-09-28:
+- Income step: bank connection through Plaid Link, detected transfer questions, and an income list.
+- Assets step: balances with masks.
+- Documents step: the real upload control with a signed upload URL straight to storage, then document-ingest.
+- Server actions in app/[tenant]/apply/ingestion-actions.ts; lib/functions.ts calls Edge Functions with the applicant's token; lib/intake.ts loadIngestionView; step states are now real.
+- Browser test tests/e2e/ingestion-ui.spec.ts (npm run test:e2e): 4 of 4. It covers a real upload read by Textract and stored ($1,480.00), the two page PDF refused on the page, a transfer answered through the real form (awaiting_review), and the assets empty state.
+- Playwright now uses port 3100, because the user's other project, uplog, runs next start on port 3000.
+Open observation for the security pass: the dev server logged "The destination stream closed early" once during e2e runs, with no failed check; investigate.
 Remaining Phase 2: Argyle (awaiting approval; else Pinwheel); the Income, Assets, and Documents intake UI; re-running the isolation suite after migrations 1000 and 1100; the Security Skill pass; and the vetting sub-agent.
 
 Next action: the user actions in PHASE-2-SPEC.md, USER ACTIONS: Plaid sandbox, Argyle sandbox, an AWS IAM user limited to Textract (billed per page; confirm cost), and a Supabase access token for function deploys. Then run the CONFIRM AT BUILD checks. Also confirm the qa-test-agent skill can produce TESTS.md shaped output, per CLAUDE.md.

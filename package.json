@@ -12,7 +12,8 @@
     "test:theming": "playwright test",
     "typecheck": "next typegen && tsc --noEmit",
     "test:unit": "vitest run tests/unit",
-    "test:integration": "vitest run tests/integration"
+    "test:integration": "vitest run tests/integration",
+    "test:e2e": "playwright test tests/e2e"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.9.1",
