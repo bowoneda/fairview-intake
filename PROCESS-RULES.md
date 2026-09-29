@@ -32,11 +32,11 @@ Phase 1 status: complete, 2026-09-28. Every item independently verified by the M
 ## PHASE 2: FINANCIAL INGESTION
 
 [ ] Plaid sandbox integration functional, produces a normalized income_records entry.
-[ ] Argyle sandbox integration functional, produces a normalized income_records entry of identical shape to the Plaid pipeline's output.
+[ ] Payroll sandbox integration (Plaid Payroll Income; Argyle or Pinwheel as the listing names, if later added) functional, produces a normalized income_records entry of identical shape to the bank pipeline's output.
 [ ] Textract Queries fallback pipeline functional against a sample scanned paystub, W-2, and Schedule C, each producing a normalized income_records entry of identical shape to the other two pipelines.
-[ ] Argyle ingestion captures gross pay, pay frequency, YTD earnings, and deductions.
+[ ] Payroll ingestion captures gross pay, pay frequency, YTD earnings, and deductions.
 [ ] Plaid transaction classification identifies recurring peer to peer income transfers in a sandbox account and produces a recurring transfer income source.
-[ ] Webhook signature verification present and tested for both Plaid and Argyle, even in sandbox mode.
+[ ] Webhook signature verification present and tested for every webhook provider in use (Plaid, which serves both bank and payroll; and Argyle if later added), even in sandbox mode.
 [ ] Integration test suite covering all three ingestion paths.
 [ ] Normalized income record shape identity test passes: one record from each pipeline validates against the single shared schema with an identical key set.
 [ ] New Phase 2 tables have tenant_id and RLS in the migration that creates them; isolation suite extended to them and to the private document storage bucket, and passing.
@@ -44,7 +44,7 @@ Phase 1 status: complete, 2026-09-28. Every item independently verified by the M
 [ ] No raw Textract response, SSN, or full account number is stored anywhere, confirmed by query; raw provider payloads are stored redacted; Plaid access tokens are encrypted and unreadable by any client role.
 [ ] Genericization check from RULES.md run, exact command as written there, no output.
 
-Phase 2 status: not started.
+Phase 2 status: in progress. Two items were reworded on 2026-09-29 from "Argyle" to "payroll" after the stack decision to use Plaid Payroll Income (MEMORY.md); the requirement itself, verified payroll data of the same normalized shape, is unchanged.
 
 ## PHASE 3: RULES ENGINE AND PDF GENERATION
 

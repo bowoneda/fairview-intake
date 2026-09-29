@@ -3,7 +3,7 @@
 // Backoff after a failed attempt: 1, 5, 15, 60 minutes; after 5 attempts the event stays failed and the
 // connection is marked error for a person to look at.
 import { json, serviceClient } from "../_shared/auth.ts";
-import { ingestItem, safeReason, type Connection } from "../_shared/plaid.ts";
+import { ingestItem, ingestPayroll, safeReason, type Connection } from "../_shared/plaid.ts";
 
 const BACKOFF_MINUTES = [1, 5, 15, 60];
 const MAX_ATTEMPTS = 5;
@@ -22,19 +22,23 @@ Deno.serve(async (req) => {
     const done = (status: string, fields: Record<string, unknown> = {}) =>
       svc.from("webhook_events").update({ status, processed_at: new Date().toISOString(), ...fields }).eq("id", e.id);
     try {
-      if (e.provider !== "plaid" || !String(e.event_type).startsWith("TRANSACTIONS.")) {
+      const type = String(e.event_type);
+      if (e.provider !== "plaid" || !(type.startsWith("TRANSACTIONS.") || type.startsWith("INCOME."))) {
         await done("ignored", { last_error: "not_retryable", next_attempt_at: null });
         results.push({ id: e.id, status: "ignored" });
         continue;
       }
-      const { data: c } = await svc.from("provider_connections")
-        .select("id, tenant_id, applicant_id, household_member_id").eq("provider", "plaid").eq("provider_ref", e.provider_ref ?? "").maybeSingle();
+      const cols = "id, tenant_id, applicant_id, household_member_id, product, provider_user_ref";
+      const ref = e.provider_ref ?? "";
+      const c = (await svc.from("provider_connections").select(cols).eq("provider", "plaid").eq("provider_ref", ref).maybeSingle()).data
+        ?? (await svc.from("provider_connections").select(cols).eq("provider", "plaid").eq("provider_user_ref", ref).maybeSingle()).data;
       if (!c) {
         await done("ignored", { last_error: "unknown_item", next_attempt_at: null });
         results.push({ id: e.id, status: "ignored" });
         continue;
       }
-      await ingestItem(svc, c as Connection);
+      if ((c as Connection).product === "payroll_income") await ingestPayroll(svc, c as Connection);
+      else await ingestItem(svc, c as Connection);
       await done("processed", { last_error: null, next_attempt_at: null });
       results.push({ id: e.id, status: "processed" });
     } catch (err) {

@@ -1,6 +1,6 @@
 // plaid-sandbox: SANDBOX ONLY. Lets integration tests drive the real Plaid flow without the Link UI, while the
 // Plaid secret stays in Edge Function secrets. Refuses to run unless PLAID_ENV is sandbox.
-//   POST { action: "link", household_member_id, custom_user? }  -> sandbox public token, then the same exchange
+//   POST { action: "link", household_member_id, product?, custom_user? }  -> sandbox public token, then the same exchange
 //                                                                 and ingestion code the real flow uses
 //   POST { action: "fire_webhook", connection_id, webhook_code } -> Plaid sends a real signed webhook
 import { authenticate, errorResponse, HttpError, json, serviceClient } from "../_shared/auth.ts";
@@ -18,17 +18,19 @@ Deno.serve(async (req) => {
 
     if (input?.action === "link") {
       if (typeof input.household_member_id !== "string") throw new HttpError(400, "missing_member", "household_member_id required");
-      const c = await startConnection(svc, caller.asCaller, caller.tenantId, input.household_member_id)
-        .catch(() => { throw new HttpError(404, "member_not_found", "member not found"); });
+      const product = input.product === "payroll_income" ? "payroll_income" : "transactions";
+      const c = await startConnection(svc, caller.asCaller, caller.tenantId, input.household_member_id, product)
+        .catch((e) => { if (e instanceof PlaidError) throw e; throw new HttpError(404, "member_not_found", "member not found"); });
       // 180 days, like the real Link token: Plaid's default is 90, too short for the recurring rule's lookback.
       const options: Record<string, unknown> = { webhook: WEBHOOK_URL, transactions: { days_requested: 180 } };
       if (input.custom_user) {
         options.override_username = "user_custom";
         options.override_password = JSON.stringify(input.custom_user);
       }
-      const pt = await plaid<{ public_token: string }>("/sandbox/public_token/create", {
-        institution_id: SANDBOX_INSTITUTION, initial_products: ["transactions"], options,
-      });
+      const pt = await plaid<{ public_token: string }>("/sandbox/public_token/create", product === "payroll_income"
+        ? { institution_id: SANDBOX_INSTITUTION, initial_products: ["income_verification"], user_id: c.provider_user_ref,
+            options: { webhook: WEBHOOK_URL, income_verification: { income_source_types: ["payroll"] } } }
+        : { institution_id: SANDBOX_INSTITUTION, initial_products: ["transactions"], options });
       const summary = await exchangeAndIngest(svc, c, pt.public_token);
       return json(200, { connection_id: c.id, ...summary });
     }

@@ -81,11 +81,15 @@ export async function ingestUploadedDocument(input: z.input<typeof uploadRequest
 
 export type LinkStart = { ok: true; linkToken: string; connectionId: string } | { ok: false; message: string };
 
-export async function startBankConnection(tenantSlug: string, memberId: string): Promise<LinkStart> {
+export async function startBankConnection(
+  tenantSlug: string, memberId: string, product: "transactions" | "payroll_income" = "transactions",
+): Promise<LinkStart> {
   const who = await applicant(tenantSlug);
   if (!who) return { ok: false, message: "Sign in again to continue." };
   if (!who.app.household.some((m) => m.id === memberId)) return { ok: false, message: "Choose a person from your household." };
-  const r = await callFunction<{ link_token: string; connection_id: string }>("plaid-link-token", { household_member_id: memberId });
+  const r = await callFunction<{ link_token: string; connection_id: string }>("plaid-link-token", {
+    household_member_id: memberId, product: product === "payroll_income" ? "payroll_income" : "transactions",
+  });
   if (r.status !== 200) return { ok: false, message: r.body.message ?? "The bank connection service is not available right now." };
   return { ok: true, linkToken: r.body.link_token, connectionId: r.body.connection_id };
 }

@@ -1,0 +1,48 @@
+{
+  "_source": "Plaid Sandbox /credit/payroll_income/get, first pay stub, captured 2026-09-29 by the plaid-sandbox payroll_probe. The employee is Plaid's fictional sandbox persona.",
+  "deductions": {
+    "breakdown": [
+      { "current_amount": 1000, "description": "taxes", "iso_currency_code": "USD", "unofficial_currency_code": null, "ytd_amount": 1234 }
+    ],
+    "total": { "current_amount": 1000, "iso_currency_code": "USD", "unofficial_currency_code": null, "ytd_amount": 1234 }
+  },
+  "document_id": "r9gyKrX85Kqj9",
+  "document_metadata": {
+    "document_type": "PAYSTUB",
+    "download_url": "https://sandbox.plaid.com/income/verification/document/download/d1b7d0d9-b249-443e-b7cd-61a187dbf381",
+    "name": "53fae86d-2d0e-478f-8952-15413e2c2178.pdf",
+    "status": "PROCESSING_COMPLETE"
+  },
+  "earnings": {
+    "breakdown": [
+      { "canonical_description": "REGULAR_PAY", "current_amount": 1006, "description": "salary earned", "hours": 40, "iso_currency_code": "USD", "rate": 25.15, "unofficial_currency_code": null, "ytd_amount": 1006 },
+      { "canonical_description": "BONUS", "current_amount": 1000, "description": "bonus earned", "hours": null, "iso_currency_code": "USD", "rate": null, "unofficial_currency_code": null, "ytd_amount": 1000 },
+      { "canonical_description": "OVERTIME", "current_amount": 320, "description": "overtime pay earned", "hours": 10, "iso_currency_code": "USD", "rate": 32, "unofficial_currency_code": null, "ytd_amount": 320 }
+    ],
+    "total": { "current_amount": 2306, "hours": 50, "iso_currency_code": "USD", "unofficial_currency_code": null, "ytd_amount": 2306 }
+  },
+  "employee": {
+    "address": { "city": "Oakland", "country": "US", "postal_code": "94103", "region": "CA", "street": "1234 Grand Ave" },
+    "marital_status": "SINGLE",
+    "name": "Josie Georgia Harrison",
+    "taxpayer_id": { "id_mask": "9020", "id_type": "SSN" }
+  },
+  "employer": {
+    "address": { "city": "San Francisco", "country": "US", "postal_code": "94103", "region": "CA", "street": "1098 Main Street" },
+    "name": "Platypus LLC"
+  },
+  "net_pay": { "current_amount": 1000, "description": "net pay", "iso_currency_code": "USD", "unofficial_currency_code": null, "ytd_amount": 1234 },
+  "pay_period_details": {
+    "distribution_breakdown": [
+      { "account_name": "Checking", "bank_name": "Bank of America", "current_amount": 1000, "iso_currency_code": "USD", "mask": "1223", "type": "checking", "unofficial_currency_code": null }
+    ],
+    "end_date": "2026-09-28",
+    "gross_earnings": 2306,
+    "iso_currency_code": "USD",
+    "pay_amount": 1000,
+    "pay_date": "2026-09-29",
+    "pay_frequency": "BIWEEKLY",
+    "start_date": "2026-09-14",
+    "unofficial_currency_code": null
+  }
+}

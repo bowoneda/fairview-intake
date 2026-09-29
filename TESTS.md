@@ -34,11 +34,11 @@ Full coverage on the calculation engine means two things, both required. First, 
 
 ## PENDING: INTEGRATION TEST SCOPE
 
-Phase 2. Tests confirming the Plaid sandbox pipeline, the Argyle sandbox pipeline, and the Textract fallback pipeline each produce an income_records entry of identical shape. Not yet built, since the pipelines themselves do not exist yet.
+Phase 2. Tests confirming the Plaid bank pipeline, the Plaid payroll pipeline, and the Textract fallback pipeline each produce an income_records entry of identical shape. Not yet built, since the pipelines themselves do not exist yet.
 
 ## PENDING: END TO END TEST SCOPE
 
-A single scenario walking a simulated applicant from intake, through a Plaid or Argyle sandbox connection or a document upload, through calculation, through PDF generation, through e-signature. Not yet built. Depends on Phases 1 through 3 being complete.
+A single scenario walking a simulated applicant from intake, through a Plaid bank or payroll sandbox connection or a document upload, through calculation, through PDF generation, through e-signature. Not yet built. Depends on Phases 1 through 3 being complete.
 
 ## PENDING: SECURITY TEST SCOPE
 

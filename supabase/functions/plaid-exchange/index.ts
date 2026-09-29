@@ -13,7 +13,7 @@ Deno.serve(async (req) => {
     }
     // Ownership through RLS: only the caller's own connection is visible.
     const { data: c } = await caller.asCaller.from("provider_connections")
-      .select("id, tenant_id, applicant_id, household_member_id, status, provider").eq("id", input.connection_id).maybeSingle();
+      .select("id, tenant_id, applicant_id, household_member_id, status, provider, product").eq("id", input.connection_id).maybeSingle();
     if (!c || c.provider !== "plaid") throw new HttpError(404, "not_found", "Bank connection not found.");
     if (c.status !== "link_started") throw new HttpError(409, "already_exchanged", "This bank connection is already set up.");
 

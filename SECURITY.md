@@ -88,7 +88,7 @@ SEC-P1-06, Informational, outside this repository. The ui-kit-designer skill in 
 
 Security headers (Content Security Policy and others), rate limiting beyond Supabase Auth's built in limits, the PII reveal path and its audit logging (not built yet), and a full STRIDE review of every role and table.
 
-## PHASE 2 PASS FINDINGS (Argyle excepted)
+## PHASE 2 PASS FINDINGS
 
 Performed 2026-09-28 by the Security Skill, inline in the building session, against fairview-dev and the deployed Edge Functions. Scope: the Phase 2 surface. That covers seven Edge Functions, the private document storage, provider tokens, webhooks, the retry job, data from providers, and the new intake screens. Argyle is not built yet; its payroll functions get their own check when they land. This is not the Master Vetting Skill's verification.
 
@@ -136,4 +136,4 @@ SEC-P2-07, Informational, not a defect. During browser tests the dev server logg
 
 ### Not yet assessed
 
-The Argyle functions and webhook (not built). The full STRIDE pass is Phase 4.
+Payroll (added 2026-09-29) runs through Plaid Payroll Income on the same functions, token handling, webhook verification, and retry path assessed above; its payload minimization is unit tested (the employee block, taxpayer id mask, pay distribution, and document download link are never stored) and checked against real sandbox data by the payroll integration test. The full STRIDE pass is Phase 4.

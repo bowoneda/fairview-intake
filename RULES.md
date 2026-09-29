@@ -30,9 +30,9 @@ Every worked example in CALC-SPEC-1.md is a required, permanent automated test. 
 
 ## FINANCIAL API INTEGRATION RULES
 
-Plaid and Argyle sandbox credentials are stored as environment secrets, never committed, and never logged, including in error logs or stack traces. A webhook handler for either provider verifies the webhook signature before processing, even in sandbox mode, since sandbox code paths tend to become production code paths without anyone rewriting the security relevant parts.
+Provider sandbox credentials (Plaid, which serves bank and payroll; Argyle if later added) are stored as environment secrets, never committed, and never logged, including in error logs or stack traces. A webhook handler for either provider verifies the webhook signature before processing, even in sandbox mode, since sandbox code paths tend to become production code paths without anyone rewriting the security relevant parts.
 
-The normalized income record produced by the Plaid pipeline, the Argyle pipeline, and the Textract fallback pipeline must have the identical shape, per MASTER-SPEC-1.md's income_records table. The calculation engine should not know or care which pipeline produced a given income record.
+The normalized income record produced by the bank pipeline, the payroll pipeline, and the Textract fallback pipeline must have the identical shape, per MASTER-SPEC-1.md's income_records table. The calculation engine should not know or care which pipeline produced a given income record.
 
 ## PII HANDLING RULES
 

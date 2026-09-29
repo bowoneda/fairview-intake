@@ -191,6 +191,48 @@ describe("Plaid Sandbox through the deployed functions", () => {
     expect(rejected).toEqual(expect.arrayContaining(["missing_signature", "malformed_signature", "wrong_algorithm", "unknown_key"]));
   });
 
+  it("payroll: a Link token for Plaid Payroll Income", async () => {
+    const r = await call("plaid-link-token", owner.token, { household_member_id: owner.memberId, product: "payroll_income" });
+    expect(r.status, JSON.stringify(r.body)).toBe(200);
+    expect(r.body.link_token).toMatch(/^link-sandbox-/);
+  });
+
+  it("payroll: pay stubs become normalized records with gross, frequency, YTD, and deductions, and no employee data", async () => {
+    const r = await call("plaid-sandbox", owner.token, { action: "link", household_member_id: owner.memberId, product: "payroll_income" });
+    expect(r.status, JSON.stringify(r.body)).toBe(200);
+    const payrollConnection = r.body.connection_id as string;
+    const rows = await waitFor("payroll records", async () => {
+      const x = (await db.query(`select r.gross_pay, r.pay_frequency, r.ytd_gross, r.deductions, r.employer_name, r.needs_review,
+          r.review_reasons, r.provider_record_ref, r.raw_payload::text p, s.source_type, s.status as source_status
+        from public.income_records r join public.income_sources s on s.id = r.income_source_id where r.provider_connection_id = $1`, [payrollConnection])).rows;
+      return x.length ? x : null;
+    });
+    const row = rows[0];
+    expect(Number(row.gross_pay)).toBeGreaterThan(0);
+    expect(row.pay_frequency).not.toBeNull();
+    expect(row.ytd_gross).not.toBeNull();
+    expect(Array.isArray(row.deductions) && row.deductions.length).toBeGreaterThan(0);
+    expect(row.source_type).toBe("employment");
+    expect(row.provider_record_ref).toBeTruthy();
+    for (const r2 of rows) {
+      expect(r2.p).not.toMatch(/"employee"|Harrison|Grand Ave|taxpayer_id|download_url|distribution_breakdown/);
+    }
+    const conn = (await db.query(`select product, provider_user_ref is not null as has_user, status from public.provider_connections where id = $1`, [payrollConnection])).rows[0];
+    expect(conn).toMatchObject({ product: "payroll_income", has_user: true, status: "ingested" });
+    console.log(`payroll: ${rows.length} stub(s); first gross ${row.gross_pay} ${row.pay_frequency}, reasons ${JSON.stringify(row.review_reasons)}`);
+
+    // Re-read through the retry path (an INCOME event keyed by the Plaid user id): no duplicates.
+    const userRef = (await db.query(`select provider_user_ref from public.provider_connections where id = $1`, [payrollConnection])).rows[0].provider_user_ref;
+    await db.query(`insert into public.webhook_events (provider, event_id, event_type, provider_ref, signature_valid, status, attempts, next_attempt_at)
+      values ('plaid', $1, 'INCOME.USER_INCOME_VERIFICATION', $2, true, 'failed', 1, now() - interval '1 minute')`, [`test-payroll-${crypto.randomUUID()}`, userRef]);
+    const secret = (await db.query(`select decrypted_secret from vault.decrypted_secrets where name = 'cron_secret'`)).rows[0].decrypted_secret;
+    const retry = await call("ingestion-retry", null, {}, { "x-cron-secret": secret });
+    expect(retry.body.results?.some((x: { status: string }) => x.status === "processed"), JSON.stringify(retry.body)).toBe(true);
+    const after = (await db.query(`select count(*)::int n from public.income_records where provider_connection_id = $1`, [payrollConnection])).rows[0].n;
+    expect(after).toBe(rows.length);
+    await db.query(`delete from public.webhook_events where provider_ref = $1`, [userRef]);
+  });
+
   it("refuses callers without a token, and another applicant's connection", async () => {
     expect((await call("plaid-link-token", null, { household_member_id: owner.memberId })).status).toBe(401);
     const other = await makeApplicant("other");

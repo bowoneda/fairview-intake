@@ -53,6 +53,7 @@ function Later({ children }: { children: React.ReactNode }) {
   return <Banner tone="info" title="Coming in a later release">{children}</Banner>;
 }
 
+const PRODUCT_TEXT: Record<string, string> = { transactions: "Bank", payroll_income: "Payroll" };
 const CONNECTION_TEXT: Record<string, string> = {
   link_started: "Not finished", exchanged: "Connected, reading data", awaiting_data: "Connected, waiting for your bank",
   ingested: "Connected", reauth_required: "Needs you to sign in to your bank again", error: "Could not read this account", revoked: "Disconnected",
@@ -96,7 +97,7 @@ function StepBody({ step, tenantSlug, household, view }: {
       const others = view!.sources.filter((x) => x.status !== "awaiting_family_statement");
       return (
         <div className="flex flex-col gap-6">
-          <p>Connect a bank account, or upload pay stubs and tax forms in the Documents step. We read the figures for you.</p>
+          <p>Connect your payroll or a bank account, or upload pay stubs and tax forms in the Documents step. We read the figures for you.</p>
           {awaiting.length > 0 && (
             <section className="flex flex-col gap-3">
               <h2 className="text-xl font-semibold">Questions about deposits we found</h2>
@@ -124,12 +125,17 @@ function StepBody({ step, tenantSlug, household, view }: {
             <h2 className="text-xl font-semibold">Connect your bank</h2>
             {view!.connections.length > 0 && (
               <ul className="flex flex-col gap-1">
-                {view!.connections.map((c) => <li key={c.id} className="text-sm">{nameOf(c.memberId)}: {CONNECTION_TEXT[c.status] ?? c.status}</li>)}
+                {view!.connections.map((c) => (
+                  <li key={c.id} className="text-sm">{PRODUCT_TEXT[c.product] ?? "Account"} for {nameOf(c.memberId)}: {CONNECTION_TEXT[c.status] ?? c.status}</li>
+                ))}
               </ul>
             )}
             <BankConnect tenant={tenantSlug} members={members} />
           </section>
-          <Later>Connecting your payroll directly is coming in a later release. Until then, upload pay stubs in the Documents step.</Later>
+          <section className="flex flex-col gap-3">
+            <h2 className="text-xl font-semibold">Connect your payroll</h2>
+            <BankConnect tenant={tenantSlug} members={members} product="payroll_income" />
+          </section>
         </div>
       );
     }

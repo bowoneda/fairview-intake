@@ -204,16 +204,20 @@ RESOLVED 2026-09-28: both projects were first created with the same database pas
 
 The original step 2 instruction, kept for reference: create the fairview-dev and fairview-staging projects in Supabase and fill in .env.local for development only. Then the schema goes in table by table, each table's RLS in the same migration that creates it, while the UX and Interface Skill's design system work runs in parallel. Invoke MASTER-VETTING-SKILL.md at the close of every phase from here forward, without exception.
 
-## PAYROLL PROVIDER DECISION, 2026-09-28 (Phase 2 is blocked only on this)
+## PAYROLL PROVIDER, STACK DECISION 2026-09-29
 
-Decision by the user: wait for Argyle's approval. Argyle's application was submitted 2026-09-28 and is "under review", typically within 24 hours. Everything else in Phase 2 is built, tested, and security reviewed.
-
-Options considered, so they need not be researched again:
-- Pinwheel (the listing allows "Argyle (or Pinwheel)"). Researched 2026-09-28: its sandbox documentation says access is through a Client Success Manager, not self serve, so switching would likely trade one approval queue for another. Facts for later: webhook header x-pinwheel-signature = "v2=" plus hex HMAC-SHA256 of "v2:{x-timestamp}:" plus the raw body, keyed with the API secret, compared in constant time. The documentation gives no timestamp tolerance, so set our own, as with Plaid (5 minutes). Sandbox test login: user_good / pass_good. Sources: docs.pinwheelapi.com/public/docs/sandbox and /webhook-signature-verification.
-- Plaid's payroll income product, using the Plaid sandbox access already working. It would close the gate fastest, but it departs from the listing's named vendors and would need a logged stack decision. It was not chosen, because a real Argyle or Pinwheel integration carries more weight for this listing. If chosen later, build payroll as a provider neutral adapter: the shared normalized schema already makes each provider a small add on.
-
-When Argyle approves:
-1. The user sets ARGYLE_API_KEY_ID, ARGYLE_API_KEY_SECRET, ARGYLE_WEBHOOK_SECRET (generated in a local shell, never shown in chat), and ARGYLE_ENV=sandbox in fairview-dev Edge Function secrets.
-2. Build argyle-user-token and argyle-webhook, which checks HMAC-SHA512 of the raw body against X-Argyle-Signature in constant time. Put the verification in a pure _shared module with unit tests, as with plaid-verify. Map paystubs through normalize(). Replace the Income step's "coming in a later release" banner with Argyle Link.
-3. Integration test against the Argyle sandbox, a short Security Skill check of the Argyle surface, then the Master Vetting sub-agent for Phase 2.
-
+Decision by the user: use Plaid Payroll Income for payroll instead of waiting for Argyle ("I don't want us slowing down"). Logged here as CLAUDE.md requires for any stack change.
+Reason: the listing names Argyle or Pinwheel. Argyle's sandbox application was still under review, and Pinwheel's own documentation routes sandbox access through a Client Success Manager, so both named vendors gate sandbox access behind sales approval. Plaid Payroll Income gives the same required data. The Plaid sandbox access was already working. It reuses the tested Plaid token, webhook, and retry machinery.
+Verified before any design change: a real sandbox probe of /credit/payroll_income/get returned gross earnings, pay frequency, YTD, itemized deductions, pay period and pay date, employer, and rate and hours per earnings line (plus W-2 data). The probe action was then removed from plaid-sandbox.
+Built:
+- migration 1300 (provider_connections.product and provider_user_ref; income_records.provider_record_ref for idempotency);
+- supabase/functions/_shared/payroll.ts, a pure mapping. It drops the employee, taxpayer id mask, distribution, and download link, and flags bonus and overtime for Phase 3;
+- a product option on plaid-link-token and plaid-sandbox; INCOME webhooks routed by Plaid user id; ingestion-retry handles INCOME events;
+- "Connect your payroll" in the Income step.
+Tests:
+- unit: 124;
+- Plaid integration: 10 of 10, including payroll records from real sandbox data, no employee data stored, and a no duplicate re-read through the retry path;
+- browser: 4 of 4. It caught a real bug: the second Plaid widget stayed disabled because the shared script's load callback fired once; fixed by checking readiness on use.
+Argyle can still be added later as another adapter. Pinwheel facts, if ever needed: webhook header x-pinwheel-signature = "v2=" plus hex HMAC-SHA256 of "v2:{x-timestamp}:" plus the raw body, keyed with the API secret; sandbox login user_good / pass_good.
+Documents updated for this decision: CLAUDE.md (stack line), MASTER-SPEC-1.md (scope and Milestone 2), PROCESS-RULES.md (two Phase 2 items reworded from Argyle to payroll, with the reason in the status line), RULES.md, TESTS.md, SECURITY.md, and PHASE-2-SPEC.md (as built 10 and 11).
+Next: the Master Vetting sub-agent for Phase 2.

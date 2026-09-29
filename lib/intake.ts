@@ -137,7 +137,7 @@ export interface IngestionView {
     firstSeen: string | null; lastSeen: string | null; familyStatement: string | null;
     employerName: string | null; grossPay: number | null; payFrequency: string | null; needsReview: boolean;
   }[];
-  connections: { id: string; memberId: string; provider: string; status: string }[];
+  connections: { id: string; memberId: string; provider: string; product: string; status: string }[];
   assets: { id: string; type: string; institution: string | null; lastFour: string | null; balance: number; asOf: string | null }[];
   documents: { id: string; memberId: string; kind: string; status: string; failureReason: string | null; createdAt: string }[];
 }
@@ -148,7 +148,7 @@ export async function loadIngestionView(applicantId: string): Promise<IngestionV
   const [src, rec, con, ast, doc] = await Promise.all([
     db.from("income_sources").select("id, household_member_id, source_type, connection_method, status, counterparty_label, frequency, average_amount, occurrence_count, first_seen, last_seen, family_statement").eq("applicant_id", applicantId).order("created_at"),
     db.from("income_records").select("income_source_id, employer_name, gross_pay, pay_frequency, needs_review").eq("applicant_id", applicantId),
-    db.from("provider_connections").select("id, household_member_id, provider, status").eq("applicant_id", applicantId).order("created_at"),
+    db.from("provider_connections").select("id, household_member_id, provider, product, status").eq("applicant_id", applicantId).order("created_at"),
     db.from("asset_records").select("id, asset_type, institution_name, account_last_four, current_balance, balance_as_of").eq("applicant_id", applicantId).order("created_at"),
     db.from("applicant_documents").select("id, household_member_id, document_kind, status, failure_reason, created_at").eq("applicant_id", applicantId).order("created_at", { ascending: false }),
   ]);
@@ -165,7 +165,7 @@ export async function loadIngestionView(applicantId: string): Promise<IngestionV
         payFrequency: r?.pay_frequency ?? null, needsReview: Boolean(r?.needs_review),
       };
     }),
-    connections: (con.data ?? []).map((c) => ({ id: c.id, memberId: c.household_member_id, provider: c.provider, status: c.status })),
+    connections: (con.data ?? []).map((c) => ({ id: c.id, memberId: c.household_member_id, provider: c.provider, product: c.product, status: c.status })),
     assets: (ast.data ?? []).map((a) => ({ id: a.id, type: a.asset_type, institution: a.institution_name, lastFour: a.account_last_four,
       balance: Number(a.current_balance), asOf: a.balance_as_of })),
     documents: (doc.data ?? []).map((d) => ({ id: d.id, memberId: d.household_member_id, kind: d.document_kind, status: d.status,

@@ -89,6 +89,10 @@ test("a detected transfer is answered through the real form and moves to review"
   const src = (await db.query(`select status, family_statement from public.income_sources where id = $1`, [sourceId])).rows[0];
   expect(src).toEqual({ status: "awaiting_review", family_statement: "regular_contribution" });
   await expect(page.getByRole("button", { name: "Connect your bank" })).toBeEnabled({ timeout: 30_000 });
+  await expect(page.getByRole("button", { name: "Connect your payroll" })).toBeEnabled({ timeout: 30_000 });
+  // Both widgets share one Plaid script: it must actually load in the page (the earlier bug hid behind "disabled").
+  await expect.poll(() => page.evaluate(() => typeof (window as unknown as { Plaid?: unknown }).Plaid), { timeout: 30_000 }).toBe("object");
+  await expect(page.getByText("Coming in a later release")).toHaveCount(0);
   await page.screenshot({ path: "tests/theming/screenshots/income-step.png", fullPage: true });
 });
 

@@ -3,6 +3,7 @@
 // accounts). Auth is never requested, so no full account number ever reaches the platform.
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { normalize, toIncomeRecordRow } from "./normalized.ts";
+import { mapPayStub, type PlaidPayStub } from "./payroll.ts";
 import { detectRecurringTransfers, type Txn } from "./recurring.ts";
 import { redactPayload } from "./redact.ts";
 
@@ -40,11 +41,15 @@ export function safeReason(e: unknown): string {
 
 export const WEBHOOK_URL = `${Deno.env.get("SUPABASE_URL")}/functions/v1/plaid-webhook`;
 
+export type PlaidProduct = "transactions" | "payroll_income";
+
 export interface Connection {
   id: string;
   tenant_id: string;
   applicant_id: string;
   household_member_id: string;
+  product?: PlaidProduct;
+  provider_user_ref?: string | null;
 }
 
 const ASSET_TYPE: Record<string, string> = {
@@ -149,19 +154,86 @@ export async function exchangeAndIngest(svc: SupabaseClient, c: Connection, publ
   if (refErr) throw new Error("connection_update");
   const { error: tokErr } = await svc.rpc("store_provider_token", { p_connection_id: c.id, p_token: ex.access_token });
   if (tokErr) throw new Error("token_store");
-  return await ingestItem(svc, c);
+  return c.product === "payroll_income" ? await ingestPayroll(svc, c) : await ingestItem(svc, c);
+}
+
+/**
+ * Pay stubs from Plaid Payroll Income, read by the Plaid user id. Idempotent: each stub is keyed by Plaid's
+ * document id. One income source per employer per connection.
+ */
+export async function ingestPayroll(svc: SupabaseClient, c: Connection): Promise<IngestSummary> {
+  const userRef = c.provider_user_ref
+    ?? (await svc.from("provider_connections").select("provider_user_ref").eq("id", c.id).single()).data?.provider_user_ref;
+  if (!userRef) throw new Error("payroll_user_missing");
+  const now = new Date().toISOString();
+  let data: Record<string, any>;
+  try {
+    data = await plaid<Record<string, any>>("/credit/payroll_income/get", { user_id: userRef });
+  } catch (e) {
+    if (e instanceof PlaidError && ["PRODUCT_NOT_READY", "INCOME_VERIFICATION_NOT_READY"].includes(e.errorCode)) {
+      await svc.from("provider_connections").update({ status: "awaiting_data", last_event_at: now, updated_at: now }).eq("id", c.id);
+      return { accounts: 0, transactions: 0, streams: 0, status: "awaiting_data" };
+    }
+    throw e;
+  }
+  const stubs: PlaidPayStub[] = (data.items ?? []).flatMap((it: any) => (it.payroll_income ?? []).flatMap((pi: any) => pi.pay_stubs ?? []));
+  let written = 0;
+  for (const stub of stubs) {
+    const m = mapPayStub(stub, now);
+    const employerKey = `payroll:${(m.record.employer_name ?? "unknown employer").toLowerCase()}`;
+    await svc.from("income_sources").upsert({
+      tenant_id: c.tenant_id, applicant_id: c.applicant_id, household_member_id: c.household_member_id,
+      source_type: "employment", connection_method: "plaid", provider_connection_id: c.id,
+      provider_stream_ref: employerKey, status: "detected",
+    }, { onConflict: "provider_connection_id,provider_stream_ref", ignoreDuplicates: true });
+    const { data: source, error: srcErr } = await svc.from("income_sources").select("id")
+      .eq("provider_connection_id", c.id).eq("provider_stream_ref", employerKey).single();
+    if (srcErr || !source) throw new Error("income_source_upsert");
+    const row = {
+      ...toIncomeRecordRow(m.record, {
+        tenant_id: c.tenant_id, applicant_id: c.applicant_id, income_source_id: source.id, provider_connection_id: c.id,
+      }, m.rawPayload),
+      provider_record_ref: m.recordRef,
+    };
+    const { error: recErr } = await svc.from("income_records").upsert(row, { onConflict: "provider_connection_id,provider_record_ref" });
+    if (recErr) throw new Error("income_record_upsert");
+    written++;
+  }
+  const status: IngestSummary["status"] = written > 0 ? "ingested" : "awaiting_data";
+  await svc.from("provider_connections").update({ status, last_event_at: now, error_code: null, updated_at: now }).eq("id", c.id);
+  return { accounts: 0, transactions: written, streams: 0, status };
 }
 
 /**
  * Create a link_started connection for the caller's own household member. The member is looked up through the
  * caller's RLS client, so an applicant can only connect accounts to their own household.
  */
-export async function startConnection(svc: SupabaseClient, asCaller: SupabaseClient, tenantId: string, memberId: string): Promise<Connection> {
+export async function startConnection(
+  svc: SupabaseClient, asCaller: SupabaseClient, tenantId: string, memberId: string, product: PlaidProduct = "transactions",
+): Promise<Connection> {
   const { data: member } = await asCaller.from("household_members").select("id, applicant_id").eq("id", memberId).maybeSingle();
   if (!member) throw new Error("member_not_found");
   const { data, error } = await svc.from("provider_connections").insert({
-    tenant_id: tenantId, applicant_id: member.applicant_id, household_member_id: member.id, provider: "plaid", status: "link_started",
-  }).select("id, tenant_id, applicant_id, household_member_id").single();
+    tenant_id: tenantId, applicant_id: member.applicant_id, household_member_id: member.id, provider: "plaid",
+    status: "link_started", product,
+  }).select("id, tenant_id, applicant_id, household_member_id, product").single();
   if (error || !data) throw new Error("connection_insert");
-  return data as Connection;
+  const c = data as Connection;
+  if (product === "payroll_income") {
+    // Payroll Income is read per Plaid user. client_user_id is our internal id: Plaid gets no name or email.
+    const user = await plaid<{ user_id: string }>("/user/create", { client_user_id: c.id });
+    await svc.from("provider_connections").update({ provider_user_ref: user.user_id }).eq("id", c.id);
+    c.provider_user_ref = user.user_id;
+  }
+  return c;
+}
+
+/** Link token parameters for a connection's product. */
+export function linkTokenBody(c: Connection): Record<string, unknown> {
+  const base = { client_name: "Applicant intake", language: "en", country_codes: ["US"], user: { client_user_id: c.id }, webhook: WEBHOOK_URL };
+  if (c.product === "payroll_income") {
+    return { ...base, products: ["income_verification"], user_id: c.provider_user_ref,
+             income_verification: { income_source_types: ["payroll"] } };
+  }
+  return { ...base, products: ["transactions"], transactions: { days_requested: 180 } };
 }

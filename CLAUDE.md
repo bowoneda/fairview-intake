@@ -22,7 +22,7 @@ This is a portfolio project built to the scope of a real Upwork job listing (job
 
 ## STACK, LOCKED
 
-Next.js, App Router, TypeScript. Tailwind CSS. React Hook Form. Zod. Supabase: Postgres, Edge Functions, Row Level Security, Vault/pgcrypto. Plaid, sandbox mode. Argyle, sandbox mode. AWS Textract, OCR fallback. pdf-lib, form generation. DocuSign or Dropbox Sign, e-signature. Twilio, SMS. Deployed on Vercel.
+Next.js, App Router, TypeScript. Tailwind CSS. React Hook Form. Zod. Supabase: Postgres, Edge Functions, Row Level Security, Vault/pgcrypto. Plaid, sandbox mode. Payroll: Plaid Payroll Income, sandbox mode (stack decision 2026-09-29, logged in MEMORY.md; the listing names Argyle or Pinwheel, both of which gate sandbox access behind sales approval, and Argyle slots in later as another adapter). AWS Textract, OCR fallback. pdf-lib, form generation. DocuSign or Dropbox Sign, e-signature. Twilio, SMS. Deployed on Vercel.
 
 Do not substitute or add to this stack without it being logged as a decision in MEMORY.md with a reason.
 
