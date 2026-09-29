@@ -87,3 +87,53 @@ SEC-P1-06, Informational, outside this repository. The ui-kit-designer skill in 
 ### Not in scope of this early pass, for Phase 4
 
 Security headers (Content Security Policy and others), rate limiting beyond Supabase Auth's built in limits, the PII reveal path and its audit logging (not built yet), and a full STRIDE review of every role and table.
+
+## PHASE 2 PASS FINDINGS (Argyle excepted)
+
+Performed 2026-09-28 by the Security Skill, inline in the building session, against fairview-dev and the deployed Edge Functions. Scope: the Phase 2 surface. That covers seven Edge Functions, the private document storage, provider tokens, webhooks, the retry job, data from providers, and the new intake screens. Argyle is not built yet; its payroll functions get their own check when they land. This is not the Master Vetting Skill's verification.
+
+Result: no high or medium severity finding. One low finding was fixed; the rest are low or informational, recorded for Phase 4 and 5.
+
+### Evidence, probes from outside
+
+P2-1a. Every function called with no token or signature: document-ingest, plaid-link-token, plaid-exchange, plaid-sandbox, plaid-webhook, and ingestion-retry all return 401.
+P2-1b. The four user functions called with a real token whose payload was edited to another tenant: all return 401 (signature check).
+P2-1c. Every function called with GET: all return 405.
+P2-2. Control: an applicant's own W-2 through the real pipeline returns 200 with needs_review (historical_annual).
+P2-3a to c. A user of the other operator calling document-ingest on this operator's document, and plaid-link-token or plaid-sandbox with this operator's household member: 404 each (ownership resolved through RLS, never from the request).
+P2-3d, e. Signed upload URLs requested into another applicant's folder, in both directions: refused by storage RLS.
+P2-3f. A document row pointing at another applicant's stored file: refused by the check constraint (23514). The path must sit under the row's own tenant and applicant.
+P2-3g. A signed download URL for another applicant's file: refused ("Object not found", so the file's existence is not confirmed).
+P2-3h. Re-running ingestion on a document already read: 409.
+P2-4a. With a real W-2 in the database (its image shows SSN 000-00-0000), all 58 text and JSON columns in public tables were scanned for SSN patterns, runs of 9 to 17 digits, and raw Textract keys (Blocks, BlockType, Geometry): no hits.
+P2-4b. Stored for that W-2: the query answers tax_year, box1_wages, employer_name, and box5_medicare_wages only.
+P2-4c. Function responses contain no tokens, keys, or stack traces.
+P2-5. Tracked files: no secret shaped strings (Supabase secret or access token, AWS key, Plaid access token, hardcoded kie.ai key, private key). No file under app/, lib/, components/, or proxy.ts reads a provider or database secret.
+P2-6. Production build client bundle (.next/static): 0 files contain PLAID_SECRET, PLAID_CLIENT_ID, AWS_SECRET_ACCESS_KEY, AWS_ACCESS_KEY_ID, SUPABASE_SECRET_KEY, SUPABASE_DB_PASSWORD, SUPABASE_ACCESS_TOKEN, sb_secret_, sbp_, access-sandbox, or AKIA. Positive control: the "Connect your bank" text and cdn.plaid.com are found.
+P2-7. Carried from the Phase 2 test suites, which the Security Skill reviewed:
+- Plaid webhook verification, 11 unit cases, including a stale token and a tampered body under a valid signature.
+- A real Plaid signed webhook verified and processed once.
+- Four forged webhook kinds rejected and each recorded.
+- Retry job authentication by Vault secret (no secret or a wrong secret gives 401).
+- Isolation suite T1 to T5: token column unreadable, webhook_events unreadable, storage isolation, and the statement and confirmation rules.
+All were re-run after the fix below: Plaid integration 8 of 8.
+
+### Findings
+
+SEC-P2-01, Low, fixed. Information in logs: on an unexpected error, plaid-webhook and ingestion-retry logged, and stored in webhook_events.last_error, the error's free text message. Today those messages are fixed strings from our own code, but a future error could carry data. Fixed with safeReason (supabase/functions/_shared/plaid.ts): only Plaid's error type and code, one of our own fixed snake_case codes, or the error class name. Redeployed and regression tested.
+
+SEC-P2-02, Low, open for Phase 4. Write amplification: plaid-webhook is necessarily unauthenticated until its signature is checked, and it records one webhook_events row per rejected request, as the specification requires. A flood of forged requests grows that table. For Phase 4: rate limit the endpoint, or aggregate rejected events per source and window, keeping the audit value without unbounded growth.
+
+SEC-P2-03, Low, open for Phase 5. plaid-sandbox exists so tests can drive Plaid Sandbox without the Link UI. It returns 404 unless PLAID_ENV is sandbox, but any signed in applicant in a sandbox environment can create sandbox connections for their own household. It must not be deployed to production at all; PROCESS-RULES.md Phase 5 now checks this.
+
+SEC-P2-04, Informational, needs a decision in Phase 4. Retention: uploaded documents stay in the private bucket indefinitely, and a W-2 image shows an SSN. Real programs retain verification documents for audit, so deletion is not automatic. A retention period, and deletion after it, should be decided and implemented (DESIGN or MASTER-SPEC decision, then a scheduled job).
+
+SEC-P2-05, Informational, for Phase 4. There is no rate limit on uploads or document-ingest beyond each document being read once (409 afterwards). Storage and Textract cost per applicant is therefore unbounded. For Phase 4, add a per applicant cap on documents and a per minute call limit.
+
+SEC-P2-06, Informational, for Phase 4. The Content Security Policy, when added, must allow Plaid Link's origins (script from cdn.plaid.com and its iframe), and Argyle's once known, and nothing broader.
+
+SEC-P2-07, Informational, not a defect. During browser tests the dev server logged "The destination stream closed early." Traced to React's server renderer (react-dom server): it cancels a streaming render when the browser disconnects mid response. Here that happened when Playwright closed a page while a refresh was still streaming. The render stops; nothing is written or exposed.
+
+### Not yet assessed
+
+The Argyle functions and webhook (not built). The full STRIDE pass is Phase 4.

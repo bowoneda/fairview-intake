@@ -56,7 +56,16 @@ Intake UI done 2026-09-28:
 - Server actions in app/[tenant]/apply/ingestion-actions.ts; lib/functions.ts calls Edge Functions with the applicant's token; lib/intake.ts loadIngestionView; step states are now real.
 - Browser test tests/e2e/ingestion-ui.spec.ts (npm run test:e2e): 4 of 4. It covers a real upload read by Textract and stored ($1,480.00), the two page PDF refused on the page, a transfer answered through the real form (awaiting_review), and the assets empty state.
 - Playwright now uses port 3100, because the user's other project, uplog, runs next start on port 3000.
-Open observation for the security pass: the dev server logged "The destination stream closed early" once during e2e runs, with no failed check; investigate.
+Phase 2 Security Skill pass done 2026-09-28 (SECURITY.md, PHASE 2 PASS FINDINGS; Argyle excepted). No high or medium finding.
+- All 6 functions refuse callers without credentials (401), and all refuse GET (405).
+- A forged tenant token gives 401.
+- Cross operator access through functions and storage is refused (404, RLS, check constraint, "Object not found").
+- A 58 column database scan with a real W-2 present found no SSN, account like digits, or raw Textract output.
+- The repository and the production bundle contain no secrets.
+Fixed: SEC-P2-01, where failure reasons are now codes or class names only (safeReason); Plaid is still 8 of 8 after the fix.
+Open for Phase 4: webhook write amplification, a retention decision for documents, upload and ingest rate limits, and the CSP must allow Plaid.
+Open for Phase 5: plaid-sandbox must not be deployed to production (a new PROCESS-RULES item).
+The "destination stream closed early" message is traced to React cancelling a render when the browser disconnects; benign (SEC-P2-07).
 Remaining Phase 2: Argyle (awaiting approval; else Pinwheel); the Income, Assets, and Documents intake UI; re-running the isolation suite after migrations 1000 and 1100; the Security Skill pass; and the vetting sub-agent.
 
 Next action: the user actions in PHASE-2-SPEC.md, USER ACTIONS: Plaid sandbox, Argyle sandbox, an AWS IAM user limited to Textract (billed per page; confirm cost), and a Supabase access token for function deploys. Then run the CONFIRM AT BUILD checks. Also confirm the qa-test-agent skill can produce TESTS.md shaped output, per CLAUDE.md.

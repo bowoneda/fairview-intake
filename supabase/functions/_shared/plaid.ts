@@ -27,6 +27,17 @@ export async function plaid<T = Record<string, unknown>>(path: string, body: Rec
   return data as T;
 }
 
+/**
+ * What may be logged or stored about a failure: Plaid's error type and code, one of our own fixed snake_case
+ * codes (for example "asset_upsert"), or otherwise only the error's class name. Never a free text message,
+ * which could someday carry data.
+ */
+export function safeReason(e: unknown): string {
+  if (e instanceof PlaidError) return `${e.errorType}/${e.errorCode}`;
+  if (e instanceof Error) return /^[a-z][a-z0-9_]{2,40}$/.test(e.message) ? e.message : e.name;
+  return "unknown";
+}
+
 export const WEBHOOK_URL = `${Deno.env.get("SUPABASE_URL")}/functions/v1/plaid-webhook`;
 
 export interface Connection {

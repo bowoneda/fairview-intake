@@ -3,7 +3,7 @@
 // Backoff after a failed attempt: 1, 5, 15, 60 minutes; after 5 attempts the event stays failed and the
 // connection is marked error for a person to look at.
 import { json, serviceClient } from "../_shared/auth.ts";
-import { ingestItem, PlaidError, type Connection } from "../_shared/plaid.ts";
+import { ingestItem, safeReason, type Connection } from "../_shared/plaid.ts";
 
 const BACKOFF_MINUTES = [1, 5, 15, 60];
 const MAX_ATTEMPTS = 5;
@@ -38,7 +38,7 @@ Deno.serve(async (req) => {
       await done("processed", { last_error: null, next_attempt_at: null });
       results.push({ id: e.id, status: "processed" });
     } catch (err) {
-      const reason = err instanceof PlaidError ? `${err.errorType}/${err.errorCode}` : err instanceof Error ? err.message : "error";
+      const reason = safeReason(err);
       console.error(`ingestion-retry: attempt ${e.attempts} failed ${reason}`);
       if (e.attempts >= MAX_ATTEMPTS) {
         await done("failed", { last_error: `gave_up: ${reason}`.slice(0, 200), next_attempt_at: null });

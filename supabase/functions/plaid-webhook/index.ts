@@ -4,7 +4,7 @@
 //   iat no more than 5 minutes old; SHA-256 of the exact raw body equals request_body_sha256 (constant time).
 import type { JWK } from "jose";
 import { json, serviceClient } from "../_shared/auth.ts";
-import { ingestItem, plaid, PlaidError, type Connection } from "../_shared/plaid.ts";
+import { ingestItem, safeReason, plaid, PlaidError, type Connection } from "../_shared/plaid.ts";
 import { sha256Hex, verifyPlaidWebhook } from "../_shared/plaid-verify.ts";
 
 const keyCache = new Map<string, JWK>();
@@ -86,7 +86,7 @@ Deno.serve(async (req) => {
     return json(200, { status: "processed" });
   } catch (e) {
     // Recorded durably and answered 2xx; ingestion-retry picks it up with backoff.
-    const reason = e instanceof PlaidError ? `${e.errorType}/${e.errorCode}` : e instanceof Error ? e.message : "error";
+    const reason = safeReason(e);
     console.error(`plaid-webhook: processing failed ${reason}`);
     await finish("failed", { last_error: reason.slice(0, 200), next_attempt_at: new Date(Date.now() + RETRY_MINUTES[0] * 60_000).toISOString() });
     return json(200, { status: "failed_will_retry" });
