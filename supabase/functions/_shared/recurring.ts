@@ -3,9 +3,15 @@
 // stream starts at awaiting_family_statement; software never decides whether it is income.
 //
 // Project conventions (not federal text; flagged for Regulatory Compliance Verification Skill confirmation):
-// payment app inflows only; at least 3 occurrences in a 180 day lookback; at least 75 percent of the gaps
-// between deposits fall in one frequency band; active when the last deposit is within 1.5 intervals of the
-// as of date.
+// payment app inflows only; grouped by sender; at least 3 occurrences in a 180 day lookback; deposits whose
+// amount is more than 50 percent away from the group's median are kept out of the stream (a one-off gift is not
+// part of a regular pattern) and listed for the reviewer; at least 75 percent of the gaps between deposits fall
+// in one frequency band; active when the last deposit is within 1.5 intervals of the as of date.
+//
+// Grouping by sender matters: on real Plaid data, `name` is normalized to the app ("Venmo") for every deposit
+// and the counterparty is the app itself; the sender exists only in `original_description`, which Plaid returns
+// when /transactions/sync is called with include_original_description. Grouping by `name` merged every sender on
+// an app into one group (found by the Phase 2 vetting sub-agent, PHASE_2_REWORK.md item 5).
 
 export type Frequency = "weekly" | "biweekly" | "semi_monthly" | "monthly";
 
@@ -16,6 +22,8 @@ export interface Txn {
   date: string; // YYYY-MM-DD
   amount: number;
   name?: string | null;
+  /** The raw bank description; for payment apps it carries the sender ("Venmo from ..."). */
+  original_description?: string | null;
   merchant_name?: string | null;
   counterparties?: { name?: string | null }[] | null;
   personal_finance_category?: { primary?: string | null; detailed?: string | null } | null;
@@ -32,11 +40,14 @@ export interface DetectedStream {
   first_seen: string;
   last_seen: string;
   transaction_ids: string[];
+  /** Deposits from the same sender left out of the stream because their amount was far from typical. */
+  excluded_transaction_ids: string[];
 }
 
 export const LOOKBACK_DAYS = 180;
 export const MIN_OCCURRENCES = 3;
 export const BAND_SHARE = 0.75;
+export const AMOUNT_TOLERANCE = 0.5;
 
 const APPS: [DetectedStream["app"], RegExp][] = [
   ["Zelle", /\bzelle\b/i],
@@ -48,14 +59,23 @@ const DAY = 86_400_000;
 const days = (a: string, b: string) => Math.round((Date.parse(b) - Date.parse(a)) / DAY);
 
 function appOf(t: Txn): DetectedStream["app"] | null {
-  const text = [t.name, t.merchant_name, ...(t.counterparties ?? []).map((c) => c.name)].filter(Boolean).join(" ");
+  const text = [t.name, t.original_description, t.merchant_name, ...(t.counterparties ?? []).map((c) => c.name)].filter(Boolean).join(" ");
   for (const [app, re] of APPS) if (re.test(text)) return app;
   return null;
 }
 
-/** The sender part of a description, without digits (reference numbers change per transfer). */
+/**
+ * Who sent it: the original description when present (it carries the sender), else the name. Digits are dropped,
+ * because reference numbers change per transfer.
+ */
 function counterpartyKey(t: Txn): string {
-  return (t.name ?? t.merchant_name ?? "").toLowerCase().replace(/\d+/g, "").replace(/[^a-z]+/g, " ").trim();
+  return (t.original_description || t.name || t.merchant_name || "").toLowerCase().replace(/\d+/g, "").replace(/[^a-z]+/g, " ").trim();
+}
+
+function median(xs: number[]): number {
+  const s = [...xs].sort((a, b) => a - b);
+  const m = Math.floor(s.length / 2);
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
 }
 
 function bandOf(gap: number): Frequency | null {
@@ -126,7 +146,11 @@ export async function detectRecurringTransfers(transactions: Txn[], asOf: string
 
   const streams: DetectedStream[] = [];
   for (const [key, g] of groups) {
-    const txns = [...g.txns].sort((a, b) => a.date.localeCompare(b.date) || a.transaction_id.localeCompare(b.transaction_id));
+    const all = [...g.txns].sort((a, b) => a.date.localeCompare(b.date) || a.transaction_id.localeCompare(b.transaction_id));
+    const typical = median(all.map((t) => Math.abs(t.amount)));
+    const inBand = (t: Txn) => Math.abs(Math.abs(t.amount) - typical) <= typical * AMOUNT_TOLERANCE;
+    const txns = all.filter(inBand);
+    const excluded = all.filter((t) => !inBand(t)).map((t) => t.transaction_id);
     if (txns.length < MIN_OCCURRENCES) continue;
     const dates = txns.map((t) => t.date);
     const frequency = classify(dates);
@@ -144,6 +168,7 @@ export async function detectRecurringTransfers(transactions: Txn[], asOf: string
       first_seen: dates[0],
       last_seen: last,
       transaction_ids: txns.map((t) => t.transaction_id),
+      excluded_transaction_ids: excluded,
     });
   }
   return streams.sort((a, b) => a.stream_ref.localeCompare(b.stream_ref));

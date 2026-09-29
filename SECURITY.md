@@ -130,9 +130,13 @@ SEC-P2-04, Informational, needs a decision in Phase 4. Retention: uploaded docum
 
 SEC-P2-05, Informational, for Phase 4. There is no rate limit on uploads or document-ingest beyond each document being read once (409 afterwards). Storage and Textract cost per applicant is therefore unbounded. For Phase 4, add a per applicant cap on documents and a per minute call limit.
 
-SEC-P2-06, Informational, for Phase 4. The Content Security Policy, when added, must allow Plaid Link's origins (script from cdn.plaid.com and its iframe), and Argyle's once known, and nothing broader.
+SEC-P2-06, Informational, for Phase 4. The Content Security Policy, when added, must allow Plaid Link's origins (script from cdn.plaid.com and its iframe), and any later payroll provider's, and nothing broader.
 
 SEC-P2-07, Informational, not a defect. During browser tests the dev server logged "The destination stream closed early." Traced to React's server renderer (react-dom server): it cancels a streaming render when the browser disconnects mid response. Here that happened when Playwright closed a page while a refresh was still streaming. The render stops; nothing is written or exposed.
+
+SEC-P2-08, Medium, fixed 2026-09-29 (found by the Phase 2 vetting sub-agent, PHASE_2_REWORK.md item 10). Authorization, separation of duties: a reviewer could confirm a detected transfer the family never explained, and could write the family's statement directly (column grant to all authenticated users, plus an update policy that admits staff), stamped as the family's answer with no audit entry. Fixed in migration 20260929001400: the statement guard refuses any family_statement change by a role other than applicant (42501); confirm_income_source requires status awaiting_review and a statement (22023); and source_type and connection_method are no longer updatable by any client role, closing the related observation that an applicant could relabel a detected transfer as employment. Regression checks T5.3b and T5.3c, each with a positive control, are in the isolation suite: 29 of 29 tests pass.
+
+SEC-P2-09, Low, fixed 2026-09-29. Data integrity: a detected stream's record was replaced by delete-then-insert, so a first ingestion racing a webhook could leave no record or two, and a re-read reset a confirmed source's record to "awaiting the family's statement". Now one atomic upsert per stream keyed on the connection and stream reference, with review reasons that follow the source's status (PHASE-2-SPEC.md AS BUILT 14).
 
 ### Not yet assessed
 

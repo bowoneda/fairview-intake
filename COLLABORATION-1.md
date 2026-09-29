@@ -8,11 +8,11 @@ How each skill below is realized is decided and recorded in MEMORY.md under SKIL
 
 A white labeled compliance and applicant intake platform for multifamily developers and operators (the tenants), built to the scope of a real Upwork job listing under a fictional jurisdiction. It replaces manual paper income verification with connected financial data APIs, a deterministic income calculation engine, and automated generation of official regulatory filings for fictional regulators. MASTER-SPEC-1.md carries the genericized scope.
 
-Stack: Next.js (App Router, TypeScript), Tailwind CSS, React Hook Form, Zod on the frontend. Supabase (Postgres, Edge Functions, Row Level Security, Vault/pgcrypto) on the backend. Plaid and Argyle in sandbox mode for financial data. AWS Textract as an OCR fallback. pdf-lib for form generation. DocuSign or Dropbox Sign for e-signature. Twilio for SMS. Deployed on Vercel.
+Stack: Next.js (App Router, TypeScript), Tailwind CSS, React Hook Form, Zod on the frontend. Supabase (Postgres, Edge Functions, Row Level Security, Vault/pgcrypto) on the backend. Plaid in sandbox mode for financial data, bank and payroll (Plaid Payroll Income; payroll moved off Argyle by the stack decision of 2026-09-29 in MEMORY.md, and Argyle or Pinwheel can be added later as another adapter). AWS Textract as an OCR fallback. pdf-lib for form generation. DocuSign or Dropbox Sign for e-signature. Twilio for SMS. Deployed on Vercel.
 
 Genericization rule: this build is not for Chicago or Cook County. All regulatory references, form names, and jurisdiction names are replaced with a fictional equivalent, held constant across every generated artifact. Use, permanently: State of Meridian, Ashland County, City of Fairview. The underlying math (HUD Part 5 style income determination) is real and must be correct. The jurisdiction wrapped around it is invented. Never let a real Illinois, Chicago, or Cook County reference leak into code, form labels, comments, or documentation.
 
-Separate databases rule: as with every project, set up a distinct Supabase project (or distinct schema with distinct keys) for local development versus production before Phase 1 begins. Sandbox Plaid and Argyle keys are separate credentials from anything used later and must never be mixed with production keys, even though this project is not expected to reach real production.
+Separate databases rule: as with every project, set up a distinct Supabase project (or distinct schema with distinct keys) for local development versus production before Phase 1 begins. Sandbox Plaid keys (and any later payroll provider's) are separate credentials from anything used later and must never be mixed with production keys, even though this project is not expected to reach real production.
 
 ## HOW REVIEW WORKS ON THIS PROJECT
 
@@ -38,8 +38,8 @@ Invoked: Phase 0 for the initial specification. Phase 3 for independent verifica
 
 ### 3. Financial API Integration Skill
 Stands in for: the integration specialist who has done this exact kind of work before and knows where the sharp edges are.
-Mandate: owns everything touching Plaid, Argyle, AWS Textract, and the e-signature provider. Sets up sandbox accounts and credentials for both Plaid and Argyle (both offer immediate free sandbox access with no approval gate), builds the Link token exchange flow for each, builds the webhook ingestion state machine, and builds the Textract fallback pipeline for applicants who cannot connect an account and must upload a scanned document instead. Also owns the DocuSign or Dropbox Sign embedded signature flow and the Twilio SMS trigger integration.
-Input: Plaid and Argyle sandbox documentation, the master specification's data model for what a normalized income record looks like once ingested.
+Mandate: owns everything touching Plaid (bank and payroll), AWS Textract, and the e-signature provider. Sets up the Plaid sandbox account and credentials (Argyle's and Pinwheel's sandboxes turned out to be gated behind sales approval, which is why payroll runs through Plaid Payroll Income; MEMORY.md, 2026-09-29), builds the Link token exchange flow for each Plaid product, builds the webhook ingestion state machine, and builds the Textract fallback pipeline for applicants who cannot connect an account and must upload a scanned document instead. Also owns the DocuSign or Dropbox Sign embedded signature flow and the Twilio SMS trigger integration.
+Input: Plaid sandbox documentation (Transactions and Payroll Income), the master specification's data model for what a normalized income record looks like once ingested.
 Output: working sandbox integrations for all four services, and a running notes file of provider specific quirks (token expiry behavior, webhook retry semantics, rate limits) so this knowledge is not relearned from scratch on a future project.
 Invoked: Phase 2.
 
@@ -73,7 +73,7 @@ Invoked: continuously from Phase 2 onward, with a hard gate at Phase 3 requiring
 
 ### 8. Deployment Skill
 Stands in for: the DevOps/infrastructure engineer.
-Mandate: owns the distinction between the sandbox development environment and any later production environment, meaning separate Supabase projects and separate Plaid/Argyle credential sets from the start. Owns the Vercel deployment pipeline, environment secret management, and a pre deploy checklist that includes actually querying the deployed database to confirm Row Level Security policies are active in that environment, not just in local development.
+Mandate: owns the distinction between the sandbox development environment and any later production environment, meaning separate Supabase projects and separate Plaid (and any later payroll provider) credential sets from the start. Owns the Vercel deployment pipeline, environment secret management, and a pre deploy checklist that includes actually querying the deployed database to confirm Row Level Security policies are active in that environment, not just in local development.
 Input: the built and security audited application.
 Output: a deployed staging environment and a deployment checklist specific to this project's stack (feeds into PROCESS-RULES.md).
 Invoked: Phase 5, and again for any redeploy.
@@ -91,7 +91,7 @@ Phase 0, foundation. Project Architect Skill and Regulatory Compliance Verificat
 
 Phase 1, architecture and shell. Full Stack Engineering Skill builds the multi tenant Supabase schema and RLS policies and the Next.js intake shell with dynamic theming. UX and Interface Skill delivers the intake flow design and theming tokens in parallel, feeding the engineering work. Security Skill runs an early tenant isolation check. Master Vetting Skill gates the phase.
 
-Phase 2, financial ingestion. Financial API Integration Skill builds the Plaid, Argyle, and Textract pipelines. Full Stack Engineering Skill wires the ingested data into the application's data model. QA Test Agent Skill begins integration testing here and continues through the rest of the project. Master Vetting Skill gates the phase.
+Phase 2, financial ingestion. Financial API Integration Skill builds the Plaid bank, Plaid payroll, and Textract pipelines. Full Stack Engineering Skill wires the ingested data into the application's data model. QA Test Agent Skill begins integration testing here and continues through the rest of the project. Master Vetting Skill gates the phase.
 
 Phase 3, rules engine and PDF generation. Full Stack Engineering Skill builds the calculation engine to the Regulatory Compliance Verification Skill's specification and the pdf-lib form population logic. QA Test Agent Skill must reach full coverage on the calculation engine before this phase can close. Regulatory Compliance Verification Skill independently re-derives and checks the engine's actual output. Master Vetting Skill gates the phase and this gate is the strictest one on the project, given what a wrong calculation would mean in a real deployment.
 

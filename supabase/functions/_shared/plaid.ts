@@ -99,11 +99,14 @@ export async function ingestItem(svc: SupabaseClient, c: Connection, asOf = new 
   let cursor: string | undefined;
   let updateStatus = "";
   for (let page = 0; page < 20; page++) {
-    const r = await plaid<Record<string, any>>("/transactions/sync", { access_token: token, cursor, count: 500 });
+    // include_original_description: the only field that carries a payment app deposit's sender.
+    const r = await plaid<Record<string, any>>("/transactions/sync", {
+      access_token: token, cursor, count: 500, options: { include_original_description: true },
+    });
     for (const t of [...(r.added ?? []), ...(r.modified ?? [])]) {
       txns.push({
         transaction_id: t.transaction_id, account_id: t.account_id, date: t.date, amount: Number(t.amount),
-        name: t.name ?? null, merchant_name: t.merchant_name ?? null,
+        name: t.name ?? null, original_description: t.original_description ?? null, merchant_name: t.merchant_name ?? null,
         counterparties: (t.counterparties ?? []).map((cp: Record<string, unknown>) => ({ name: (cp.name as string) ?? null })),
         personal_finance_category: t.personal_finance_category ?? null,
       });
@@ -115,30 +118,40 @@ export async function ingestItem(svc: SupabaseClient, c: Connection, asOf = new 
 
   const streams = await detectRecurringTransfers(txns, asOf);
   for (const s of streams) {
-    // Insert once; later runs refresh the figures but never touch status or the family's statement.
+    // A new stream is inserted with its figures in the same statement, so it is never visible half filled
+    // (an earlier insert-then-update showed a source with no frequency or amount for a moment). Later runs refresh
+    // the figures only; status and the family's statement are never touched by software.
+    const figures = { counterparty_label: s.app, frequency: s.frequency, average_amount: s.average_amount,
+                      occurrence_count: s.occurrence_count, first_seen: s.first_seen, last_seen: s.last_seen };
     await svc.from("income_sources").upsert({
       tenant_id: c.tenant_id, applicant_id: c.applicant_id, household_member_id: c.household_member_id,
       source_type: "recurring_transfer", connection_method: "plaid", provider_connection_id: c.id,
-      provider_stream_ref: s.stream_ref, status: "awaiting_family_statement",
+      provider_stream_ref: s.stream_ref, status: "awaiting_family_statement", ...figures,
     }, { onConflict: "provider_connection_id,provider_stream_ref", ignoreDuplicates: true });
     const { data: source, error: srcErr } = await svc.from("income_sources")
-      .update({ counterparty_label: s.app, frequency: s.frequency, average_amount: s.average_amount,
-                occurrence_count: s.occurrence_count, first_seen: s.first_seen, last_seen: s.last_seen })
-      .eq("provider_connection_id", c.id).eq("provider_stream_ref", s.stream_ref).select("id").single();
+      .update(figures)
+      .eq("provider_connection_id", c.id).eq("provider_stream_ref", s.stream_ref).select("id, status").single();
     if (srcErr || !source) throw new Error("income_source_upsert");
 
+    // A re-read never resets a stated or confirmed transfer back to "awaiting the family's statement".
+    const reasons = source.status === "awaiting_family_statement" ? ["awaiting_family_statement"]
+      : source.status === "awaiting_review" ? ["awaiting_review"] : [];
     const record = normalize({
       ingestion_method: "plaid", source_type: "recurring_transfer", employer_name: s.app, pay_frequency: s.frequency,
       pay_rate: null, expected_annual_hours: null, gross_pay: s.average_amount, pay_period_start: s.first_seen,
       pay_period_end: s.last_seen, pay_date: s.last_seen, ytd_gross: null, ytd_through_date: null, earnings_year_start: null,
-      deductions: [], source_confidence: null, needs_review: true, review_reasons: ["awaiting_family_statement"], captured_at: now,
+      deductions: [], source_confidence: null, needs_review: reasons.length > 0, review_reasons: reasons, captured_at: now,
     });
     const raw = redactPayload({ rule: "PHASE-2-SPEC recurring transfer rule v1", as_of: asOf, stream: s }).value;
-    await svc.from("income_records").delete().eq("income_source_id", source.id);
-    const { error: recErr } = await svc.from("income_records").insert(toIncomeRecordRow(record, {
-      tenant_id: c.tenant_id, applicant_id: c.applicant_id, income_source_id: source.id, provider_connection_id: c.id,
-    }, raw));
-    if (recErr) throw new Error("income_record_insert");
+    // One atomic upsert keyed by the stream: the first ingestion and Plaid's first webhooks run concurrently, and a
+    // delete-then-insert let one run read between the two (no record) or both insert (a duplicate).
+    const { error: recErr } = await svc.from("income_records").upsert({
+      ...toIncomeRecordRow(record, {
+        tenant_id: c.tenant_id, applicant_id: c.applicant_id, income_source_id: source.id, provider_connection_id: c.id,
+      }, raw),
+      provider_record_ref: `stream:${s.stream_ref}`,
+    }, { onConflict: "provider_connection_id,provider_record_ref" });
+    if (recErr) throw new Error("income_record_upsert");
   }
 
   const status: IngestSummary["status"] = txns.length === 0 && updateStatus !== "HISTORICAL_UPDATE_COMPLETE" ? "awaiting_data" : "ingested";

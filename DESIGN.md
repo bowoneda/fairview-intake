@@ -223,7 +223,7 @@ Each step page: the step progress indicator, an h1 with the step name, the step'
 
 Household (Phase 1 fields are real and saved to household_members): for each person, full name, relationship to the head of household (radio group: Head of household, Spouse, Co head, Dependent, Other adult), and date of birth. "Add another person" and "Remove" per person, with the head of household first and not removable. Social security numbers are later (Phase 2 onward, through the encrypted path only); Phase 1 does not show an SSN field at all.
 
-Income (Phase 1 scaffold): per household member, "Does this person have income?" and income source type (Job, Self employment, Benefits, Regular payments from a person or app, Other). Later, Phase 2: "Connect your payroll" (Argyle), "Connect your bank" (Plaid), and "Upload paystubs or tax forms" (the upload control), with connection status per source.
+Income (Phase 1 scaffold): per household member, "Does this person have income?" and income source type (Job, Self employment, Benefits, Regular payments from a person or app, Other). Later, Phase 2: "Connect your payroll" (Plaid Payroll Income, per the 2026-09-29 stack decision in MEMORY.md), "Connect your bank" (Plaid), and "Upload paystubs or tax forms" (the upload control), with connection status per source.
 
 Assets (Phase 1 scaffold): asset type and institution name per account, current balance. Later, Phase 2: bank connection populates balances and income; full account numbers are never typed or shown here.
 

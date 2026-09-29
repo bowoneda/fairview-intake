@@ -3,6 +3,7 @@
 //   POST { action: "link", household_member_id, product?, custom_user? }  -> sandbox public token, then the same exchange
 //                                                                 and ingestion code the real flow uses
 //   POST { action: "fire_webhook", connection_id, webhook_code } -> Plaid sends a real signed webhook
+//   POST { action: "remove", connection_id }                     -> removes the item / payroll user at Plaid
 import { authenticate, errorResponse, HttpError, json, serviceClient } from "../_shared/auth.ts";
 import { exchangeAndIngest, plaid, PLAID_ENV, PlaidError, startConnection, WEBHOOK_URL } from "../_shared/plaid.ts";
 
@@ -43,7 +44,19 @@ Deno.serve(async (req) => {
       return json(200, { fired: input.webhook_code ?? "SYNC_UPDATES_AVAILABLE" });
     }
 
-    throw new HttpError(400, "unknown_action", "action must be link or fire_webhook");
+    if (input?.action === "remove") {
+      // Test teardown: remove the item (and payroll user) on Plaid's side so Plaid stops sending webhooks for
+      // data the test is about to delete, and sandbox items do not pile up at Plaid.
+      const { data: c } = await caller.asCaller.from("provider_connections").select("id").eq("id", input.connection_id).maybeSingle();
+      if (!c) throw new HttpError(404, "not_found", "connection not found");
+      const { data: ref } = await svc.from("provider_connections").select("provider_user_ref").eq("id", c.id).single();
+      const { data: token } = await svc.rpc("read_provider_token", { p_connection_id: c.id });
+      if (token) await plaid("/item/remove", { access_token: token });
+      if (ref?.provider_user_ref) await plaid("/user/remove", { user_id: ref.provider_user_ref });
+      return json(200, { removed: true });
+    }
+
+    throw new HttpError(400, "unknown_action", "action must be link, fire_webhook, or remove");
   } catch (e) {
     if (e instanceof PlaidError) return json(502, { error: "provider_error", plaid: `${e.errorType}/${e.errorCode}` });
     return errorResponse(e, "plaid-sandbox");

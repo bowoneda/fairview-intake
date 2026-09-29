@@ -7,7 +7,7 @@ Living state file. Update this at the end of every work session, regardless of h
 Phase 0, foundation: complete.
 Phase 1, architecture and shell: COMPLETE, 2026-09-28. The Master Vetting sub-agent, a fresh general purpose agent grounded in all project documents, independently verified all 11 PROCESS-RULES.md Phase 1 items with its own evidence. That included dev credentials rejected by staging, the live catalog, both suites run by it (Vitest 26 of 26 with 283 checks, Playwright 5 of 5), its own hand made cross tenant read and write with positive controls, its own SQL inserted operator rendering, a design token match, security spot checks, and the genericization grep. Evidence is in PHASE_1_COMPLETE.md. It could not see the staging project's creation date, and it did not compare staging key hashes, since no staging credentials are on this machine; the rejection probes stood in for that. Its observations, none failures: owner connection bypasses RLS (Phase 5 note), anonymous operator listing (SEC-P1-03, Phase 4), its hand probes were applicant level only, the Harbor Point test fixture has no program link, and this machine's clock is about 4 hours behind the database server.
 
-Phase 2, financial ingestion: specified, not started. PHASE-2-SPEC.md was written 2026-09-28, after researching current primary sources: 24 CFR 5.609 as amended by HOTMA; HUD Notice PIH 2023-27 / H 2023-10, Attachments G.1 and G.19; Plaid webhook verification and recurring transactions documentation; Argyle webhook documentation; and the AWS Textract AnalyzeDocument documentation and set quotas.
+Phase 2, financial ingestion: built; the first vetting found 3 failing items (PHASE_2_REWORK.md), which have been reworked, and the re-vet is next. See PHASE 2 VETTING AND REWORK at the end of this file. PHASE-2-SPEC.md was written 2026-09-28, after researching current primary sources: 24 CFR 5.609 as amended by HOTMA; HUD Notice PIH 2023-27 / H 2023-10, Attachments G.1 and G.19; Plaid webhook verification and recurring transactions documentation; Argyle webhook documentation; and the AWS Textract AnalyzeDocument documentation and set quotas.
 
 Key decisions:
 - Provider code runs in Supabase Edge Functions, so webhooks get public endpoints and provider secrets stay out of Next.js.
@@ -129,9 +129,9 @@ MASTER-VETTING-SKILL.md, COMPLIANCE-VERIFICATION-SKILL.md: exist.
 
 PHASE-1-SPEC.md: exists, written 2026-09-28 from the corrected MASTER-SPEC-1.md. It covers the environments, the column level schema, the JWT claim hook, the RLS pattern and per table access, tenant resolution and theming, the design system deliverable, the literal cross tenant test procedure with positive controls, the second tenant render check, and the gate evidence for the vetting sub-agent.
 
-PHASE-2-SPEC.md through PHASE-5-SPEC.md: DO NOT EXIST. An earlier version of this file claimed all five phase specs existed with full content. That was false: they were described in a chat session but never saved to the project folder. Found and corrected 2026-09-28 by checking the folder directly. Until a phase spec is written, MASTER-SPEC-1.md and PROCESS-RULES.md govern that phase. DESIGN.md's visual design system section is also still pending; it is Phase 1 work for the UX and Interface Skill.
+PHASE-2-SPEC.md: exists (2026-09-28), with an AS BUILT section. PHASE-3-SPEC.md through PHASE-5-SPEC.md: do not exist yet. An earlier version of this file claimed all five phase specs existed with full content. That was false: they were described in a chat session but never saved to the project folder. Found and corrected 2026-09-28 by checking the folder directly. Until a phase spec is written, MASTER-SPEC-1.md and PROCESS-RULES.md govern that phase. DESIGN.md's visual design system section is also still pending; it is Phase 1 work for the UX and Interface Skill.
 
-No application code exists yet. No Supabase project has been provisioned yet. No skill has actually been invoked and produced a real output yet, other than the Project Architect Skill and Regulatory Compliance Verification Skill work captured in MASTER-SPEC-1.md and CALC-SPEC-1.md.
+Superseded 2026-09-29: the application exists (Phase 1 complete; Phase 2 built), on fairview-dev, with Edge Functions deployed. The sentences above describe the state before Phase 1 and are kept as history.
 
 ## SKILL TEAM RESOLUTION, DECIDED
 
@@ -161,13 +161,11 @@ While writing PHASE-1-SPEC.md, applicants gained user_id in MASTER-SPEC-1.md. Wi
 
 ## WHAT DOES NOT YET EXIST
 
-No Supabase project. No local development versus staging environment separation has been set up yet, which per CLAUDE.md must happen before any schema work begins, meaning it is the very first concrete action of Phase 1, not something to defer.
-
-No specifications for Phases 2 to 5, no visual design system, no screen specifications, no code of any kind.
+As of 2026-09-29: PHASE-3-SPEC.md to PHASE-5-SPEC.md; the calculation engine, PDF generation, e-signature, and SMS (Phases 3 and 4); the staging deployment (Phase 5); Argyle or Pinwheel as a payroll adapter (optional, see the stack decision). The environments, the design system, and Phases 1 and 2 exist.
 
 ## DECISIONS LOCKED SO FAR
 
-Stack: Next.js, Tailwind, React Hook Form, Zod, Supabase, Plaid, Argyle, Textract, pdf-lib, DocuSign or Dropbox Sign, Twilio, Vercel. Not to be changed without logging a reason here.
+Stack: Next.js, Tailwind, React Hook Form, Zod, Supabase, Plaid (bank and payroll; payroll moved from Argyle on 2026-09-29, see PAYROLL PROVIDER below), Textract, pdf-lib, DocuSign or Dropbox Sign, Twilio, Vercel. Not to be changed without logging a reason here.
 
 Multi tenant approach: single project, single schema, RLS keyed on tenant_id. Not per-tenant databases or schemas.
 
@@ -219,5 +217,35 @@ Tests:
 - Plaid integration: 10 of 10, including payroll records from real sandbox data, no employee data stored, and a no duplicate re-read through the retry path;
 - browser: 4 of 4. It caught a real bug: the second Plaid widget stayed disabled because the shared script's load callback fired once; fixed by checking readiness on use.
 Argyle can still be added later as another adapter. Pinwheel facts, if ever needed: webhook header x-pinwheel-signature = "v2=" plus hex HMAC-SHA256 of "v2:{x-timestamp}:" plus the raw body, keyed with the API secret; sandbox login user_good / pass_good.
-Documents updated for this decision: CLAUDE.md (stack line), MASTER-SPEC-1.md (scope and Milestone 2), PROCESS-RULES.md (two Phase 2 items reworded from Argyle to payroll, with the reason in the status line), RULES.md, TESTS.md, SECURITY.md, and PHASE-2-SPEC.md (as built 10 and 11).
+Documents updated for this decision: CLAUDE.md (stack line), MASTER-SPEC-1.md (scope and Milestone 2), PROCESS-RULES.md (three Phase 2 items reworded from Argyle to payroll, with the reason in the status line; first written here as two, corrected after the vetter counted three), RULES.md, TESTS.md, SECURITY.md, and PHASE-2-SPEC.md (as built 10 and 11).
 Next: the Master Vetting sub-agent for Phase 2.
+
+## PHASE 2 VETTING AND REWORK, 2026-09-29
+
+First vetting: the Master Vetting sub-agent (fresh, grounded in every project document) ran against fairview-dev, the real Plaid Sandbox, and real Textract. Result: NOT COMPLETE, with 9 PASS and 3 FAIL, recorded in PHASE_2_REWORK.md.
+- Item 5 (medium): on real Plaid data, recurring detection merged senders. Plaid's name field is "Venmo" for every deposit, and the sender is only in original_description. A one-off $500 gift was folded into a stream, and two regular senders produced no stream at all.
+- Item 10 (medium): a reviewer could confirm with no family statement, and could write the family's statement.
+- Item 8 (low): no three pipeline shape identity test existed (the property itself held by hand).
+
+Rework, done 2026-09-29:
+- Detector groups by sender (original_description, requested with include_original_description), and keeps amount outliers (more than 50 percent from the group median) out of a stream, listed for the reviewer. Confirmed on a sandbox diagnostic before the fix; a mutation check showed the new unit test fails under the old grouping.
+- Migration 20260929001400 statement separation (SEC-P2-08).
+- Atomic stream upsert, and review reasons that follow the source status (SEC-P2-09; vetter observation 2).
+- tests/integration/shape-identity.test.ts runs all three pipelines for real and validates one stored row from each with the shared schema.
+- Integration scenario for item 5 through the deployed functions (Alex monthly $100, Blake biweekly $50, Casey biweekly $85.50, plus a $500 gift from another sender): exactly three streams, each with 6 occurrences, and the gift in none. The test waits for Plaid's HISTORICAL_UPDATE, because Plaid delivers recent transactions first.
+- plaid-sandbox remove action: test teardown removes its items at Plaid, so no late webhooks land after cleanup. The 12 orphan webhook_events rows in dev (including the 4 the vetter found at baseline) were deleted; dev webhook_events is now 0, and stays 0 after a full run.
+- Docs: RULES.md names webhook_events as the fifth table without tenant_id; COLLABORATION-1.md and DESIGN.md no longer name Argyle as in use; the PROCESS-RULES status line says three reworded items; PHASE-2-SPEC.md AS BUILT 12 to 16.
+
+Builder runs after the rework (not vetting evidence):
+- unit: 128 of 128;
+- integration: 18 of 18, run twice;
+- isolation: 29 of 29 (Vitest summary and JSON report agree);
+- e2e: 4 of 4;
+- full Playwright: 9 of 9. One earlier full run had 1 failure (a toBeVisible timeout) that did not reproduce in two reruns. It is reported to the vetter as a possible flake.
+
+Next action: re-launch the Master Vetting sub-agent for Phase 2. It must re-observe every item, not only 5, 8, and 10. Write PHASE_2_COMPLETE.md only if all pass.
+After that, Phase 3:
+- fold the CALC-SPEC draft (session scratchpad, calc-spec-phase3-draft.md; move it into the repository before the session ends) into CALC-SPEC-1.md and TESTS.md. The draft covers the 2026 imputation threshold $52,787 (the seed's $50,000 is wrong), passbook 0.40%, and cases 3.3, 5.3, 6.1, 7.1, and 8.1.
+- add a migration correcting program_rule_sets.
+- write PHASE-3-SPEC.md.
+Two project conventions await the user's sign-off: a Schedule C loss counts as zero, and confirmed reimbursements are not income.

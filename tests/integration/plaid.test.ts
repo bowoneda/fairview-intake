@@ -13,6 +13,8 @@ let db: PgClient;
 let tenantId = "";
 const startedAt = new Date().toISOString();
 const users: { id: string; token: string; appId: string; memberId: string; client: SupabaseClient }[] = [];
+/** webhook_events rows the tests insert directly; their provider_ref matches no connection, so they are removed by id. */
+const insertedEvents: string[] = [];
 
 const today = new Date();
 const daysAgo = (n: number) => new Date(today.getTime() - n * 86_400_000).toISOString().slice(0, 10);
@@ -67,12 +69,20 @@ beforeAll(async () => {
 
 afterAll(async () => {
   const apps = users.map((u) => u.appId);
-  const items = (await db.query(`select provider_ref from public.provider_connections where applicant_id = any($1::uuid[])`, [apps])).rows.map((r: { provider_ref: string }) => r.provider_ref);
+  const refs = (await db.query(`select id, applicant_id, provider_ref, provider_user_ref from public.provider_connections where applicant_id = any($1::uuid[])`, [apps])).rows;
+  const items = refs.flatMap((r: { provider_ref: string | null; provider_user_ref: string | null }) => [r.provider_ref, r.provider_user_ref].filter(Boolean));
+  // Remove the items at Plaid first, so no webhook arrives after the cleanup below; then let in-flight ones land.
+  for (const r of refs.filter((x: { provider_ref: string | null; provider_user_ref: string | null }) => x.provider_ref || x.provider_user_ref)) {
+    const u = users.find((x) => x.appId === r.applicant_id)!;
+    const res = await call("plaid-sandbox", u.token, { action: "remove", connection_id: r.id });
+    if (res.status !== 200) console.log(`teardown: Plaid removal of a connection returned ${res.status} ${JSON.stringify(res.body)}`);
+  }
+  if (refs.length) await new Promise((r) => setTimeout(r, 10_000));
   for (const t of ["income_records", "income_sources", "asset_records", "provider_connections", "household_members"]) {
     await db.query(`delete from public.${t} where applicant_id = any($1::uuid[])`, [apps]);
   }
   await db.query(`delete from public.applicants where id = any($1::uuid[])`, [apps]);
-  await db.query(`delete from public.webhook_events where provider = 'plaid' and (provider_ref = any($1::text[]) or (signature_valid = false and received_at >= $2))`, [items, startedAt]);
+  await db.query(`delete from public.webhook_events where provider = 'plaid' and (provider_ref = any($1::text[]) or id = any($3::uuid[]) or (signature_valid = false and received_at >= $2))`, [items, startedAt, insertedEvents]);
   for (const u of users) await svc.auth.admin.deleteUser(u.id);
   const left = (await db.query(`select (select count(*) from auth.users where email like $1)::int u, (select count(*) from public.provider_connections where applicant_id = any($2::uuid[]))::int c`, [`${EMAIL_PREFIX}%`, apps])).rows[0];
   console.log(`teardown: users left ${left.u}, connections left ${left.c}`);
@@ -115,7 +125,10 @@ describe("Plaid Sandbox through the deployed functions", () => {
     expect({ ...sources[0], average_amount: Number(sources[0].average_amount) }).toEqual({
       counterparty_label: "Venmo", frequency: "monthly", average_amount: 200, occurrence_count: 6,
       status: "awaiting_family_statement", family_statement: null });
-    const rec = (await db.query(`select ingestion_method, needs_review, review_reasons, gross_pay, raw_payload::text p from public.income_records where provider_connection_id = $1`, [connectionId])).rows[0];
+    const rec = await waitFor("the stream's record", async () =>
+      (await db.query(`select ingestion_method, needs_review, review_reasons, gross_pay, raw_payload::text p from public.income_records where provider_connection_id = $1`, [connectionId])).rows[0] ?? null);
+    const recCount = (await db.query(`select count(*)::int n from public.income_records where provider_connection_id = $1`, [connectionId])).rows[0].n;
+    expect(recCount).toBe(1);
     expect(rec).toMatchObject({ ingestion_method: "plaid", needs_review: true, review_reasons: ["awaiting_family_statement"] });
     expect(rec.p).not.toMatch(/"account_number"|"routing/);
   });
@@ -141,7 +154,8 @@ describe("Plaid Sandbox through the deployed functions", () => {
       [`test-retry-${crypto.randomUUID()}`, item])).rows[0].id;
     const unknown = (await db.query(`insert into public.webhook_events (provider, event_id, event_type, provider_ref, signature_valid, status, attempts, next_attempt_at)
       values ('plaid', $1, 'TRANSACTIONS.SYNC_UPDATES_AVAILABLE', $2, true, 'failed', 1, now() - interval '1 minute') returning id`,
-      [`test-retry-${crypto.randomUUID()}`, item.replace(/.$/, "Z")])).rows[0].id;
+      [`test-retry-${crypto.randomUUID()}`, `unknown-item-${crypto.randomUUID()}`])).rows[0].id;
+    insertedEvents.push(due, unknown);
 
     expect((await call("ingestion-retry", null, {})).status).toBe(401);
     expect((await call("ingestion-retry", null, {}, { "x-cron-secret": "guess" })).status).toBe(401);
@@ -189,6 +203,33 @@ describe("Plaid Sandbox through the deployed functions", () => {
     }
     const rejected = (await db.query(`select event_type from public.webhook_events where provider = 'plaid' and signature_valid = false and received_at >= $1`, [startedAt])).rows.map((r: { event_type: string }) => r.event_type);
     expect(rejected).toEqual(expect.arrayContaining(["missing_signature", "malformed_signature", "wrong_algorithm", "unknown_key"]));
+  });
+
+  it("rework item 5: distinct senders on one app are distinct streams, and a one-off gift stays out", async () => {
+    const venmo = (d: number, amount: number, sender: string) => txn(daysAgo(d), -amount, `Venmo from ${sender}`);
+    const scenario = { override_accounts: [{ type: "depository", subtype: "checking", starting_balance: 640,
+      transactions: [
+        ...[71, 57, 43, 29, 15, 1].map((d) => venmo(d, 85.5, "Casey Friend")),
+        venmo(100, 500, "Birthday Gift"),
+        ...[150, 120, 90, 60, 30, 3].map((d) => venmo(d, 100, "Alex One")),
+        ...[80, 66, 52, 38, 24, 10].map((d) => venmo(d, 50, "Blake Two")),
+      ] }] };
+    const u = await makeApplicant("rework5");
+    const r = await call("plaid-sandbox", u.token, { action: "link", household_member_id: u.memberId, custom_user: scenario });
+    expect(r.status, JSON.stringify(r.body)).toBe(200);
+    // Plaid delivers history in stages (recent first); wait for the final state, not the first three rows.
+    const streams = await waitFor("three complete Venmo streams", async () => {
+      const rows = (await db.query(`select frequency, average_amount, occurrence_count, first_seen from public.income_sources
+        where provider_connection_id = $1 and source_type = 'recurring_transfer' order by average_amount`, [r.body.connection_id])).rows;
+      // A half filled source must never be visible, at any stage.
+      expect(rows.every((x: { frequency: string | null; average_amount: string | null }) => x.frequency !== null && x.average_amount !== null)).toBe(true);
+      return rows.length === 3 && rows.every((x: { occurrence_count: number }) => x.occurrence_count === 6) ? rows : null;
+    }, 120_000);
+    expect(streams.map((s: { frequency: string; average_amount: string; occurrence_count: number }) =>
+      [s.frequency, Number(s.average_amount), s.occurrence_count])).toEqual([["biweekly", 50, 6], ["biweekly", 85.5, 6], ["monthly", 100, 6]]);
+    // The $500 gift is in no stream's figures: Casey's average is exactly 85.50 and starts 71 days ago, not 100.
+    const casey = streams.find((s: { average_amount: string }) => Number(s.average_amount) === 85.5);
+    expect(String(casey.first_seen instanceof Date ? casey.first_seen.toISOString().slice(0, 10) : casey.first_seen)).toBe(daysAgo(71));
   });
 
   it("payroll: a Link token for Plaid Payroll Income", async () => {

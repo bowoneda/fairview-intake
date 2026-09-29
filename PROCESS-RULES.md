@@ -44,7 +44,7 @@ Phase 1 status: complete, 2026-09-28. Every item independently verified by the M
 [ ] No raw Textract response, SSN, or full account number is stored anywhere, confirmed by query; raw provider payloads are stored redacted; Plaid access tokens are encrypted and unreadable by any client role.
 [ ] Genericization check from RULES.md run, exact command as written there, no output.
 
-Phase 2 status: in progress. Two items were reworded on 2026-09-29 from "Argyle" to "payroll" after the stack decision to use Plaid Payroll Income (MEMORY.md); the requirement itself, verified payroll data of the same normalized shape, is unchanged.
+Phase 2 status: in progress. Three items were reworded on 2026-09-29 from "Argyle" to "payroll" (payroll integration, payroll ingestion, and webhook verification) after the stack decision to use Plaid Payroll Income (MEMORY.md); the requirement itself, verified payroll data of the same normalized shape, is unchanged.
 
 ## PHASE 3: RULES ENGINE AND PDF GENERATION
 

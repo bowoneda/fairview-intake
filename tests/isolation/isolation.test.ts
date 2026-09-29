@@ -463,6 +463,14 @@ group("phase 2 surfaces: provider tokens, webhooks, documents, statements", () =
     check({ id: "T5.3", actor: "A1", action: "state A2's transfer", expected: "0 rows, unchanged",
             actual: `${describe(other)}; A2 statement ${(await stateOf(s2)).family_statement}`,
             pass: rejectedOrNoRows(other) && (await stateOf(s2)).family_statement === null });
+    const staffStates = await fx.users.RA.client.from("income_sources").update({ family_statement: "life_event_gift" }).eq("id", s2).select("id");
+    check({ id: "T5.3b", actor: "RA", action: "reviewer writes the family's statement", expected: "rejected, unchanged",
+            actual: `${describe(staffStates)}; A2 statement ${(await stateOf(s2)).family_statement}`,
+            pass: rejected(staffStates) && (await stateOf(s2)).family_statement === null });
+    const early = await fx.users.RA.client.rpc("confirm_income_source", { p_source_id: s2, p_outcome: "confirmed_income", p_reason: "T5 too early" });
+    check({ id: "T5.3c", actor: "RA", action: "reviewer confirms before the family has stated", expected: "rejected, unchanged",
+            actual: `${describe(early)}; A2 status ${(await stateOf(s2)).status}`,
+            pass: rejected(early) && (await stateOf(s2)).status === "awaiting_family_statement" });
     const applicantRpc = await fx.users.A1.client.rpc("confirm_income_source", { p_source_id: s1, p_outcome: "confirmed_excluded", p_reason: "T5" });
     check({ id: "T5.4", actor: "A1", action: "confirm_income_source as an applicant", expected: "rejected",
             actual: describe(applicantRpc), pass: rejected(applicantRpc) });

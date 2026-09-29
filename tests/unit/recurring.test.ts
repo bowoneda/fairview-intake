@@ -8,6 +8,50 @@ const inflow = (date: string, amount: number, name: string, account = "acc1"): T
 const monthly = (name: string, amount = 200, account = "acc1") =>
   ["2026-04-03", "2026-05-03", "2026-06-02", "2026-07-03", "2026-08-03", "2026-09-02"].map((d) => inflow(d, amount, name, account));
 
+// Plaid's real shape, confirmed on sandbox data 2026-09-29: name is normalized to the app for every deposit and
+// the counterparty is the app itself; only original_description carries the sender.
+const plaidVenmo = (date: string, amount: number, sender: string, account = "acc1"): Txn => ({
+  transaction_id: `p${seq++}`, account_id: account, date, amount: -amount, name: "Venmo", merchant_name: null,
+  original_description: `Venmo from ${sender}`, counterparties: [{ name: "Venmo" }],
+});
+
+describe("detectRecurringTransfers on Plaid's real field shape (PHASE_2_REWORK.md item 5)", () => {
+  it("Defect B: two regular senders on one app produce two streams", async () => {
+    const alex = ["2026-04-01", "2026-05-01", "2026-05-31", "2026-06-30", "2026-07-30", "2026-08-29", "2026-09-26"].map((d) => plaidVenmo(d, 100, "Alex One"));
+    const blake = ["2026-07-10", "2026-07-24", "2026-08-07", "2026-08-21", "2026-09-04", "2026-09-18"].map((d) => plaidVenmo(d, 50, "Blake Two"));
+    const found = await detectRecurringTransfers([...alex, ...blake], AS_OF);
+    expect(found.map((s) => [s.frequency, s.average_amount, s.occurrence_count]).sort()).toEqual([["biweekly", 50, 6], ["monthly", 100, 7]]);
+    expect(found.every((s) => s.app === "Venmo")).toBe(true);
+  });
+
+  it("Defect A: a one-off gift from a different sender stays out of the regular stream", async () => {
+    const casey = ["2026-07-20", "2026-08-03", "2026-08-17", "2026-08-31", "2026-09-14", "2026-09-28"].map((d) => plaidVenmo(d, 85.5, "Casey Friend"));
+    const gift = plaidVenmo("2026-06-21", 500, "Birthday Gift");
+    const found = await detectRecurringTransfers([...casey, gift], AS_OF);
+    expect(found).toHaveLength(1);
+    expect(found[0]).toMatchObject({ frequency: "biweekly", average_amount: 85.5, occurrence_count: 6, first_seen: "2026-07-20" });
+    expect(found[0].transaction_ids).not.toContain(gift.transaction_id);
+  });
+
+  it("a one-off large payment from the same sender is excluded from the stream and listed for the reviewer", async () => {
+    const regular = ["2026-04-03", "2026-05-03", "2026-06-02", "2026-07-03", "2026-08-03", "2026-09-02"].map((d) => plaidVenmo(d, 200, "A Relative"));
+    const birthday = plaidVenmo("2026-06-15", 1000, "A Relative");
+    const [s, ...rest] = await detectRecurringTransfers([...regular, birthday], AS_OF);
+    expect(rest).toHaveLength(0);
+    expect(s).toMatchObject({ frequency: "monthly", average_amount: 200, occurrence_count: 6, first_seen: "2026-04-03" });
+    expect(s.excluded_transaction_ids).toEqual([birthday.transaction_id]);
+  });
+
+  it("would have failed before the fix: grouping by name alone merges senders", async () => {
+    // With only name ("Venmo") to go on, these two senders are indistinguishable; the fix depends on
+    // original_description. Without it, both senders fall into one irregular group and nothing is detected.
+    const noOriginal = (t: Txn): Txn => ({ ...t, original_description: null });
+    const alex = ["2026-06-01", "2026-07-01", "2026-08-01", "2026-09-01"].map((d) => noOriginal(plaidVenmo(d, 100, "Alex One")));
+    const blake = ["2026-08-07", "2026-08-21", "2026-09-04", "2026-09-18"].map((d) => noOriginal(plaidVenmo(d, 50, "Blake Two")));
+    expect(await detectRecurringTransfers([...alex, ...blake], AS_OF)).toHaveLength(0);
+  });
+});
+
 describe("detectRecurringTransfers", () => {
   it("detects a monthly Venmo inflow with its average, count, and dates", async () => {
     const [s, ...rest] = await detectRecurringTransfers(monthly("Venmo from A Relative"), AS_OF);
