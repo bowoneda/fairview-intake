@@ -4,7 +4,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { normalize, toIncomeRecordRow } from "./normalized.ts";
 import { mapPayStub, type PlaidPayStub } from "./payroll.ts";
-import { detectRecurringTransfers, type Txn } from "./recurring.ts";
+import { detectRecurringTransfers, streamReviewReasons, type Txn } from "./recurring.ts";
 import { redactPayload } from "./redact.ts";
 
 export const PLAID_ENV = Deno.env.get("PLAID_ENV") ?? "sandbox";
@@ -134,15 +134,16 @@ export async function ingestItem(svc: SupabaseClient, c: Connection, asOf = new 
     if (srcErr || !source) throw new Error("income_source_upsert");
 
     // A re-read never resets a stated or confirmed transfer back to "awaiting the family's statement".
-    const reasons = source.status === "awaiting_family_statement" ? ["awaiting_family_statement"]
-      : source.status === "awaiting_review" ? ["awaiting_review"] : [];
+    // Once a reviewer has decided, nothing is left to review. Migration 1500 keeps these in step when the status
+    // changes between reads; this is the same rule, applied when the figures are refreshed.
+    const reasons = streamReviewReasons(source.status, s.pattern);
     const record = normalize({
       ingestion_method: "plaid", source_type: "recurring_transfer", employer_name: s.app, pay_frequency: s.frequency,
       pay_rate: null, expected_annual_hours: null, gross_pay: s.average_amount, pay_period_start: s.first_seen,
       pay_period_end: s.last_seen, pay_date: s.last_seen, ytd_gross: null, ytd_through_date: null, earnings_year_start: null,
       deductions: [], source_confidence: null, needs_review: reasons.length > 0, review_reasons: reasons, captured_at: now,
     });
-    const raw = redactPayload({ rule: "PHASE-2-SPEC recurring transfer rule v1", as_of: asOf, stream: s }).value;
+    const raw = redactPayload({ rule: "PHASE-2-SPEC recurring transfer rule v2 (AS BUILT 17)", as_of: asOf, stream: s }).value;
     // One atomic upsert keyed by the stream: the first ingestion and Plaid's first webhooks run concurrently, and a
     // delete-then-insert let one run read between the two (no record) or both insert (a duplicate).
     const { error: recErr } = await svc.from("income_records").upsert({

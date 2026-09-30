@@ -66,7 +66,7 @@ Invoked: an early pass at the end of Phase 1 (tenant isolation only), a full pas
 
 ### 7. QA Test Agent Skill
 Stands in for: the QA engineer.
-Mandate: the calculation specification from the Regulatory Compliance Verification Skill requires full coverage, meaning every worked example and every edge case in that specification has a corresponding automated test, not just a sample of them. Also builds integration tests against the Plaid and Argyle sandbox responses, and an end to end test that walks a simulated applicant from intake through document upload through calculation through PDF generation through signature.
+Mandate: the calculation specification from the Regulatory Compliance Verification Skill requires full coverage, meaning every worked example and every edge case in that specification has a corresponding automated test, not just a sample of them. Also builds integration tests against the Plaid sandbox responses (bank and payroll), and an end to end test that walks a simulated applicant from intake through document upload through calculation through PDF generation through signature.
 Input: the calculation specification's worked examples, the built engine, the built integration pipelines.
 Output: the test suite and a coverage report (feeds into TESTS.md).
 Invoked: continuously from Phase 2 onward, with a hard gate at Phase 3 requiring full coverage on the calculation engine specifically before that phase can close.

@@ -43,7 +43,7 @@ export function TransferQuestion({ tenant, source }: {
       <fieldset className="flex flex-col gap-1" aria-describedby={error ? `${legendId}-error` : undefined}>
         <legend id={legendId} className="mb-2 font-semibold">
           We found {source.occurrences} deposits from {source.appLabel} of about {source.averageAmount !== null ? money(source.averageAmount) : "the same amount"}{" "}
-          {source.frequency ? FREQ[source.frequency] : ""}, from {source.firstSeen} to {source.lastSeen}. What are these payments?
+          {source.frequency ? FREQ[source.frequency] : "at irregular times"}, from {source.firstSeen} to {source.lastSeen}. What are these payments?
         </legend>
         {OPTIONS.map((o) => (
           <label key={o.value} className="flex min-h-11 cursor-pointer items-center gap-3">

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { detectRecurringTransfers, type Txn } from "../../supabase/functions/_shared/recurring";
+import { detectRecurringTransfers, streamReviewReasons, type Txn } from "../../supabase/functions/_shared/recurring";
 
 const AS_OF = "2026-09-28";
 let seq = 0;
@@ -44,11 +44,90 @@ describe("detectRecurringTransfers on Plaid's real field shape (PHASE_2_REWORK.m
 
   it("would have failed before the fix: grouping by name alone merges senders", async () => {
     // With only name ("Venmo") to go on, these two senders are indistinguishable; the fix depends on
-    // original_description. Without it, both senders fall into one irregular group and nothing is detected.
+    // original_description. Without it, both senders fall into one group and only one of the two streams is found.
     const noOriginal = (t: Txn): Txn => ({ ...t, original_description: null });
     const alex = ["2026-06-01", "2026-07-01", "2026-08-01", "2026-09-01"].map((d) => noOriginal(plaidVenmo(d, 100, "Alex One")));
     const blake = ["2026-08-07", "2026-08-21", "2026-09-04", "2026-09-18"].map((d) => noOriginal(plaidVenmo(d, 50, "Blake Two")));
-    expect(await detectRecurringTransfers([...alex, ...blake], AS_OF)).toHaveLength(0);
+    expect(await detectRecurringTransfers([...alex, ...blake], AS_OF)).toHaveLength(1);
+    const withOriginal = await detectRecurringTransfers([...alex, ...blake].map((t, i) => ({ ...t, original_description: `Venmo from ${i < 4 ? "Alex One" : "Blake Two"}` })), AS_OF);
+    expect(withOriginal).toHaveLength(2);
+  });
+});
+
+// PHASE_2_REWORK_2.md item 5: the second vetting's adversarial cases, with the vetter's shapes (days before AS_OF).
+const ago = (n: number) => new Date(Date.parse(AS_OF) - n * 86_400_000).toISOString().slice(0, 10);
+
+describe("detectRecurringTransfers with extra or off-schedule deposits (PHASE_2_REWORK_2.md item 5)", () => {
+  it("case A: one extra same-amount deposit does not remove a monthly stream; it is left out and listed", async () => {
+    const regular = [150, 120, 90, 60, 30, 3].map((d) => plaidVenmo(ago(d), 100, "Alex Moss"));
+    const extra = plaidVenmo(ago(45), 100, "Alex Moss");
+    const found = await detectRecurringTransfers([...regular, extra], AS_OF);
+    expect(found).toHaveLength(1);
+    expect(found[0]).toMatchObject({ frequency: "monthly", pattern: "regular", average_amount: 100, occurrence_count: 6, first_seen: ago(150), last_seen: ago(3) });
+    expect(found[0].excluded_transaction_ids).toEqual([extra.transaction_id]);
+  });
+
+  it("case B: an off-schedule same-amount extra inside a biweekly series is not counted", async () => {
+    const regular = Array.from({ length: 12 }, (_, i) => plaidVenmo(ago(157 - 14 * i), 50, "Blair Ng"));
+    const extra = plaidVenmo(ago(66), 50, "Blair Ng");
+    const [s, ...rest] = await detectRecurringTransfers([...regular, extra], AS_OF);
+    expect(rest).toHaveLength(0);
+    expect(s).toMatchObject({ frequency: "biweekly", occurrence_count: 12, average_amount: 50 });
+    expect(s.excluded_transaction_ids).toEqual([extra.transaction_id]);
+  });
+
+  it("case C: a memo that changes between deposits does not split the sender", async () => {
+    const txns = [150, 120, 90, 60, 30, 3].map((d, i) => plaidVenmo(ago(d), 80, `Chris Po ${i % 2 ? "rent share" : "utilities"}`));
+    const [s, ...rest] = await detectRecurringTransfers(txns, AS_OF);
+    expect(rest).toHaveLength(0);
+    expect(s).toMatchObject({ frequency: "monthly", occurrence_count: 6, average_amount: 80 });
+  });
+
+  it("case E: an extra deposit inside the amount band, off schedule, is left out of a monthly stream", async () => {
+    const regular = [125, 95, 65, 35, 5].map((d) => plaidVenmo(ago(d), 250, "Robin Ye"));
+    const extra = plaidVenmo(ago(50), 150, "Robin Ye");
+    const [s, ...rest] = await detectRecurringTransfers([...regular, extra], AS_OF);
+    expect(rest).toHaveLength(0);
+    expect(s).toMatchObject({ frequency: "monthly", occurrence_count: 5, average_amount: 250, first_seen: ago(125), last_seen: ago(5) });
+    expect(s.excluded_transaction_ids).toEqual([extra.transaction_id]);
+  });
+
+  it("case F: a switch from biweekly to weekly keeps the stream; the in-between deposits are listed", async () => {
+    const biweekly = Array.from({ length: 11 }, (_, i) => plaidVenmo(ago(170 - 14 * i), 40, "Taylor Fox")); // last at 30 days ago
+    const weekly = [23, 16, 9, 2].map((d) => plaidVenmo(ago(d), 40, "Taylor Fox"));
+    const [s, ...rest] = await detectRecurringTransfers([...biweekly, ...weekly], AS_OF);
+    expect(rest).toHaveLength(0);
+    expect(s).toMatchObject({ frequency: "biweekly", pattern: "regular", occurrence_count: 13, last_seen: ago(2) });
+    expect(s.excluded_transaction_ids).toHaveLength(2);
+  });
+
+  it("a sender with no regular schedule is surfaced as irregular, not dropped", async () => {
+    const txns = [140, 131, 97, 60, 58, 20].map((d) => plaidVenmo(ago(d), 60, "Dana Irregular"));
+    const [s, ...rest] = await detectRecurringTransfers(txns, AS_OF);
+    expect(rest).toHaveLength(0);
+    expect(s).toMatchObject({ frequency: null, pattern: "irregular", occurrence_count: 6, average_amount: 60, first_seen: ago(140), last_seen: ago(20) });
+  });
+
+  it("an irregular sender who stopped sending is not surfaced", async () => {
+    const txns = [170, 150, 101, 90, 60].map((d) => plaidVenmo(ago(d), 60, "Old Irregular"));
+    expect(await detectRecurringTransfers(txns, AS_OF)).toEqual([]);
+  });
+
+  it("the stream key is per sender, so it survives a change of frequency between reads (N4)", async () => {
+    const early = await detectRecurringTransfers(Array.from({ length: 6 }, (_, i) => plaidVenmo(ago(80 - 14 * i), 40, "Key Keeper")), AS_OF);
+    const later = await detectRecurringTransfers([28, 21, 14, 7, 0].map((d) => plaidVenmo(ago(d), 40, "Key Keeper")), AS_OF);
+    expect(early[0].frequency).toBe("biweekly");
+    expect(later[0].frequency).toBe("weekly");
+    expect(later[0].stream_ref).toBe(early[0].stream_ref);
+  });
+});
+
+describe("streamReviewReasons", () => {
+  it("follows the source status, adding irregular_pattern while undecided", () => {
+    expect(streamReviewReasons("awaiting_family_statement", "regular")).toEqual(["awaiting_family_statement"]);
+    expect(streamReviewReasons("awaiting_review", "irregular")).toEqual(["awaiting_review", "irregular_pattern"]);
+    expect(streamReviewReasons("confirmed_income", "irregular")).toEqual([]);
+    expect(streamReviewReasons("dismissed", "regular")).toEqual([]);
   });
 });
 
@@ -99,9 +178,12 @@ describe("detectRecurringTransfers", () => {
     expect(await detectRecurringTransfers(two, AS_OF)).toEqual([]);
   });
 
-  it("drops irregular deposits (a birthday gift and random transfers are not a pattern)", async () => {
+  it("does not call irregular deposits regular, but surfaces them for the family's statement", async () => {
+    // Before PHASE_2_REWORK_2.md this group was dropped silently; now the family is asked about it.
     const irregular = ["2026-04-11", "2026-04-19", "2026-06-30", "2026-07-02", "2026-09-10"].map((d) => inflow(d, 40, "Venmo from Friend"));
-    expect(await detectRecurringTransfers(irregular, AS_OF)).toEqual([]);
+    const [s, ...rest] = await detectRecurringTransfers(irregular, AS_OF);
+    expect(rest).toHaveLength(0);
+    expect(s).toMatchObject({ frequency: null, pattern: "irregular", occurrence_count: 5 });
   });
 
   it("drops a stream that stopped (not active as of the date)", async () => {

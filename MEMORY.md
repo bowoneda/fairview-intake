@@ -249,3 +249,24 @@ After that, Phase 3:
 - add a migration correcting program_rule_sets.
 - write PHASE-3-SPEC.md.
 Two project conventions await the user's sign-off: a Schedule C loss counts as zero, and confirmed reimbursements are not income.
+
+## PHASE 2 SECOND VETTING AND REWORK 2, 2026-09-30
+
+Second vetting (fresh sub-agent; interrupted once by an API rate limit, then resumed with its baseline intact): NOT COMPLETE, 11 PASS and 1 FAIL, recorded in PHASE_2_REWORK_2.md.
+- Item 5 (medium): one extra deposit from a regular sender removed the whole stream (cases A and E), or was counted into it (case B). A memo that varied split the sender (case C). A switch in schedule lost the stream (case F).
+- Items 8 and 10 now pass on the vetter's own probes. Dev was returned to baseline with 0 differences.
+
+Rework 2, done 2026-09-30:
+- Detector rule v2 (PHASE-2-SPEC.md AS BUILT 17): the longest regular run per sender, with the rest listed; irregular senders surfaced; sender = two words after "from"; stream key without frequency (N4).
+- Migration 20260930001500: record review reasons follow status at once (N1, AS BUILT 18).
+- UI says "at irregular times" when there is no frequency.
+- N5 fixed (COLLABORATION-1.md). N3 left for Phase 3 (AS BUILT 19).
+
+Builder runs, not vetting evidence:
+- unit: 137;
+- integration: 19, including cases A, B, C, E, F and an irregular sender through plaid-sandbox, plus N1;
+- isolation: 29, with the report at 340 of 340;
+- Playwright: 9;
+- dev leftovers: 0.
+
+Next action: re-launch the Master Vetting sub-agent for Phase 2. Per PHASE_2_REWORK_2.md it must re-observe at least items 1, 5, 7, 8, and 10, plus the genericization check; a full re-observation is preferred.

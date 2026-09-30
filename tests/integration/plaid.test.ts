@@ -232,6 +232,48 @@ describe("Plaid Sandbox through the deployed functions", () => {
     expect(String(casey.first_seen instanceof Date ? casey.first_seen.toISOString().slice(0, 10) : casey.first_seen)).toBe(daysAgo(71));
   });
 
+  it("rework 2 item 5: extra, off-schedule, and memo-varying deposits keep their streams; an irregular sender is surfaced", async () => {
+    // PHASE_2_REWORK_2.md cases A, B, C, E, and F, plus a sender with no schedule, on one account through Plaid.
+    const t = (d: number, amount: number, text: string) => txn(daysAgo(d), -amount, text);
+    const scenario = { override_accounts: [{ type: "depository", subtype: "checking", starting_balance: 910,
+      transactions: [
+        ...[150, 120, 90, 60, 30, 3].map((d) => t(d, 100, "Venmo from Alex Moss")), t(45, 100, "Venmo from Alex Moss"), // A
+        ...Array.from({ length: 12 }, (_, i) => t(157 - 14 * i, 50, "Zelle from Blair Ng")), t(66, 50, "Zelle from Blair Ng"), // B
+        ...[150, 120, 90, 60, 30, 3].map((d, i) => t(d - 1, 80, `Venmo from Chris Po ${i % 2 ? "rent share" : "utilities"}`)), // C
+        ...[125, 95, 65, 35, 5].map((d) => t(d, 250, "Cash App from Robin Ye")), t(50, 150, "Cash App from Robin Ye"), // E
+        ...Array.from({ length: 11 }, (_, i) => t(170 - 14 * i, 40, "Venmo from Taylor Fox")), ...[23, 16, 9, 2].map((d) => t(d, 40, "Venmo from Taylor Fox")), // F
+        ...[140, 131, 97, 60, 58, 20].map((d) => t(d, 60, "Venmo from Dana Wren")), // irregular
+      ] }] };
+    const u = await makeApplicant("rework5b");
+    const r = await call("plaid-sandbox", u.token, { action: "link", household_member_id: u.memberId, custom_user: scenario });
+    expect(r.status, JSON.stringify(r.body)).toBe(200);
+    // F, B, the irregular sender, C, A, E, by average amount.
+    const expected = [["biweekly", 40, 13], ["biweekly", 50, 12], [null, 60, 6], ["monthly", 80, 6], ["monthly", 100, 6], ["monthly", 250, 5]];
+    // Plaid delivers history in stages; wait until the sources equal the final expected set.
+    const rows = await waitFor("six sources in their final state", async () => {
+      const got = (await db.query(`select s.id, s.frequency, s.average_amount, s.occurrence_count, r.raw_payload, r.review_reasons
+        from public.income_sources s join public.income_records r on r.income_source_id = s.id
+        where s.provider_connection_id = $1 and s.source_type = 'recurring_transfer' order by s.average_amount`, [r.body.connection_id])).rows;
+      const shape = got.map((x: { frequency: string | null; average_amount: string; occurrence_count: number }) => [x.frequency, Number(x.average_amount), x.occurrence_count]);
+      return JSON.stringify(shape) === JSON.stringify(expected) ? got : null;
+    }, 150_000);
+    // Each extra or off-schedule deposit is out of the figures above and listed for the reviewer.
+    const excluded = rows.map((x: { raw_payload: { stream: { excluded_transaction_ids: string[] } } }) => x.raw_payload.stream.excluded_transaction_ids.length);
+    expect(excluded).toEqual([2, 1, 0, 0, 1, 1]);
+    const irregular = rows[2];
+    expect(irregular.raw_payload.stream.pattern).toBe("irregular");
+    expect(irregular.review_reasons).toEqual(["awaiting_family_statement", "irregular_pattern"]);
+
+    // N1: the record's reasons follow the status at once, not at the next Plaid read.
+    const stated = await u.client.from("income_sources").update({ family_statement: "regular_contribution" }).eq("id", irregular.id).select("status");
+    expect(stated.error).toBeNull();
+    expect(stated.data).toEqual([{ status: "awaiting_review" }]);
+    const reasons = async () => (await db.query(`select needs_review, review_reasons from public.income_records where income_source_id = $1`, [irregular.id])).rows[0];
+    expect(await reasons()).toEqual({ needs_review: true, review_reasons: ["awaiting_review", "irregular_pattern"] });
+    await db.query(`update public.income_sources set status = 'confirmed_income' where id = $1`, [irregular.id]); // as the owner, standing in for the audited confirm
+    expect(await reasons()).toEqual({ needs_review: false, review_reasons: [] });
+  });
+
   it("payroll: a Link token for Plaid Payroll Income", async () => {
     const r = await call("plaid-link-token", owner.token, { household_member_id: owner.memberId, product: "payroll_income" });
     expect(r.status, JSON.stringify(r.body)).toBe(200);
