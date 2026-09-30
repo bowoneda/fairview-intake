@@ -47,6 +47,19 @@ async function makeApplicant(tag: string) {
   return u;
 }
 
+/** A cedar-row reviewer. No sign up path produces staff, so the users row is written directly, as in the isolation fixtures. */
+const reviewers: string[] = [];
+async function makeReviewer() {
+  const email = `${EMAIL_PREFIX}reviewer-${Date.now()}@example.test`, password = `Int-${crypto.randomUUID()}-a1A!`;
+  const { data, error } = await svc.auth.admin.createUser({ email, password, email_confirm: true });
+  if (error || !data.user) throw new Error(`createUser: ${error?.message}`);
+  reviewers.push(data.user.id);
+  await db.query(`insert into public.users (id, tenant_id, role) values ($1, $2, 'reviewer')`, [data.user.id, tenantId]);
+  const client = createClient(SUPABASE_URL, PUBLISHABLE_KEY, { auth: { persistSession: false, autoRefreshToken: false } });
+  await client.auth.signInWithPassword({ email, password });
+  return { id: data.user.id, client };
+}
+
 const call = async (fn: string, token: string | null, body: unknown, headers: Record<string, string> = {}) => {
   const res = await fetch(FN(fn), { method: "POST", headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}), ...headers }, body: JSON.stringify(body) });
   return { status: res.status, body: await res.json().catch(() => ({})) };
@@ -84,6 +97,8 @@ afterAll(async () => {
   await db.query(`delete from public.applicants where id = any($1::uuid[])`, [apps]);
   await db.query(`delete from public.webhook_events where provider = 'plaid' and (provider_ref = any($1::text[]) or id = any($3::uuid[]) or (signature_valid = false and received_at >= $2))`, [items, startedAt, insertedEvents]);
   for (const u of users) await svc.auth.admin.deleteUser(u.id);
+  await db.query(`delete from public.audit_log where actor_id = any($1::uuid[])`, [reviewers]);
+  for (const id of reviewers) await svc.auth.admin.deleteUser(id);
   const left = (await db.query(`select (select count(*) from auth.users where email like $1)::int u, (select count(*) from public.provider_connections where applicant_id = any($2::uuid[]))::int c`, [`${EMAIL_PREFIX}%`, apps])).rows[0];
   console.log(`teardown: users left ${left.u}, connections left ${left.c}`);
   await db.end();
@@ -270,8 +285,51 @@ describe("Plaid Sandbox through the deployed functions", () => {
     expect(stated.data).toEqual([{ status: "awaiting_review" }]);
     const reasons = async () => (await db.query(`select needs_review, review_reasons from public.income_records where income_source_id = $1`, [irregular.id])).rows[0];
     expect(await reasons()).toEqual({ needs_review: true, review_reasons: ["awaiting_review", "irregular_pattern"] });
-    await db.query(`update public.income_sources set status = 'confirmed_income' where id = $1`, [irregular.id]); // as the owner, standing in for the audited confirm
+    // A real reviewer, through the audited function (PHASE_2_REWORK_3.md N10).
+    const reviewer = await makeReviewer();
+    const confirmed = await reviewer.client.rpc("confirm_income_source", { p_source_id: irregular.id, p_outcome: "confirmed_income", p_reason: "integration test: family statement checked" });
+    expect(confirmed.error).toBeNull();
     expect(await reasons()).toEqual({ needs_review: false, review_reasons: [] });
+    const audit = (await db.query(`select action from public.audit_log where actor_id = $1 and target_id = $2`, [reviewer.id, irregular.id])).rows;
+    expect(audit).toEqual([{ action: "confirm_income_source" }]);
+  });
+
+  it("rework 3 item 5: a one-off just after a scheduled deposit never takes its place (cases G, I, P)", async () => {
+    // PHASE_2_REWORK_3.md: the vetter's shapes, as days before today, on one account through Plaid.
+    const t = (d: number, amount: number, text: string) => txn(daysAgo(d), -amount, text);
+    // I: the 1st and 16th of each month in the last 170 days, plus a one-off 3 days after a mid-run 1st.
+    const semi: string[] = [];
+    for (let m = 6; m >= 0; m--) {
+      for (const dom of [1, 16]) {
+        const d = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() - m, dom));
+        if (d.getTime() <= today.getTime() && d.getTime() >= today.getTime() - 170 * 86_400_000) semi.push(d.toISOString().slice(0, 10));
+      }
+    }
+    const firstOfMonth = semi.find((d, i) => i >= 3 && d.endsWith("-01"))!;
+    const iExtra = new Date(Date.parse(firstOfMonth) + 3 * 86_400_000).toISOString().slice(0, 10);
+    const scenario = { override_accounts: [{ type: "depository", subtype: "checking", starting_balance: 1200,
+      transactions: [
+        ...[150, 120, 90, 60, 30, 1].map((d) => t(d, 400, "Zelle from Rosa Vega")), t(27, 260, "Zelle from Rosa Vega"), // G: 3 days after the 30-day one
+        ...semi.map((d) => txn(d, -350, "Zelle from June Alvarez")), txn(iExtra, -220, "Zelle from June Alvarez"), // I
+        ...[154, 124, 94, 64, 34, 4].map((d) => t(d, 500, "Cash App from Hugo Bell")), t(2, 330, "Cash App from Hugo Bell"), // P: 2 days after the last
+      ] }] };
+    const u = await makeApplicant("rework5c");
+    const r = await call("plaid-sandbox", u.token, { action: "link", household_member_id: u.memberId, custom_user: scenario });
+    expect(r.status, JSON.stringify(r.body)).toBe(200);
+    const expected = [[350, semi.length], [400, 6], [500, 6]];
+    const rows = await waitFor("three sources in their final state", async () => {
+      const got = (await db.query(`select s.average_amount, s.occurrence_count, s.last_seen, r.raw_payload
+        from public.income_sources s join public.income_records r on r.income_source_id = s.id
+        where s.provider_connection_id = $1 and s.source_type = 'recurring_transfer' order by s.average_amount`, [r.body.connection_id])).rows;
+      const shape = got.map((x: { average_amount: string; occurrence_count: number }) => [Number(x.average_amount), x.occurrence_count]);
+      return JSON.stringify(shape) === JSON.stringify(expected) ? got : null;
+    }, 150_000);
+    const day = (v: unknown) => (v instanceof Date ? v.toISOString().slice(0, 10) : String(v));
+    expect(day(rows[2].last_seen)).toBe(daysAgo(4)); // P: the one-off two days later is not the last date
+    // In each stream, exactly one deposit is listed for the reviewer, and it is the one-off: the average is exactly
+    // the scheduled amount, which it could not be if the one-off had replaced a scheduled deposit.
+    expect(rows.map((x: { raw_payload: { stream: { excluded_transaction_ids: string[]; frequency: string } } }) =>
+      [x.raw_payload.stream.frequency, x.raw_payload.stream.excluded_transaction_ids.length])).toEqual([["semi_monthly", 1], ["monthly", 1], ["monthly", 1]]);
   });
 
   it("payroll: a Link token for Plaid Payroll Income", async () => {

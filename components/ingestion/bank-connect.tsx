@@ -1,7 +1,6 @@
 "use client";
 
 import Script from "next/script";
-import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Field, buttonClass, inputClass } from "@/components/ui";
 import { finishBankConnection, startBankConnection } from "@/app/[tenant]/apply/ingestion-actions";
@@ -44,7 +43,6 @@ export function BankConnect({ tenant, members, product = "transactions" }: {
 }) {
   const copy = COPY[product];
   const idPrefix = product === "payroll_income" ? "payroll" : "bank";
-  const router = useRouter();
   const [memberId, setMemberId] = useState(members[0]?.id ?? "");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ tone: "error" | "ok"; text: string } | null>(null);
@@ -68,7 +66,7 @@ export function BankConnect({ tenant, members, product = "transactions" }: {
         setBusy(false);
         setMessage(done.ok ? { tone: "ok", text: copy.done } : { tone: "error", text: done.message ?? "Try again." });
         handler.destroy();
-        router.refresh();
+        // No router.refresh(): finishBankConnection's revalidatePath returns the updated page in the same response.
       },
       onExit: (err) => {
         setBusy(false);

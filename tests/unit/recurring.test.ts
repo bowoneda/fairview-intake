@@ -122,6 +122,68 @@ describe("detectRecurringTransfers with extra or off-schedule deposits (PHASE_2_
   });
 });
 
+// PHASE_2_REWORK_3.md item 5: a one-off a few days after a scheduled deposit, with the vetter's dates.
+describe("detectRecurringTransfers when an extra lands just after a scheduled deposit (PHASE_2_REWORK_3.md)", () => {
+  const zelle = (date: string, amount: number, sender: string): Txn => ({ ...plaidVenmo(date, amount, sender), name: "Zelle", original_description: `Zelle from ${sender}` });
+
+  it("case G: a smaller one-off 3 days after a mid-run deposit stays out; the scheduled deposit stays in", async () => {
+    const regular = ["2026-05-01", "2026-05-31", "2026-06-30", "2026-07-30", "2026-08-29", "2026-09-28"].map((d) => zelle(d, 400, "Rosa Vega"));
+    const extra = zelle("2026-09-01", 260, "Rosa Vega");
+    const [s, ...rest] = await detectRecurringTransfers([...regular, extra], AS_OF);
+    expect(rest).toHaveLength(0);
+    expect(s).toMatchObject({ frequency: "monthly", average_amount: 400, occurrence_count: 6, first_seen: "2026-05-01", last_seen: "2026-09-28" });
+    expect(s.excluded_transaction_ids).toEqual([extra.transaction_id]);
+  });
+
+  it("case I: the same in a semi-monthly run", async () => {
+    const dates = ["2026-04-16", "2026-05-01", "2026-05-16", "2026-06-01", "2026-06-16", "2026-07-01", "2026-07-16", "2026-08-01", "2026-08-16", "2026-09-01", "2026-09-16"];
+    const regular = dates.map((d) => zelle(d, 350, "June Alvarez"));
+    const extra = zelle("2026-07-04", 220, "June Alvarez");
+    const [s, ...rest] = await detectRecurringTransfers([...regular, extra], AS_OF);
+    expect(rest).toHaveLength(0);
+    expect(s).toMatchObject({ frequency: "semi_monthly", average_amount: 350, occurrence_count: 11 });
+    expect(s.excluded_transaction_ids).toEqual([extra.transaction_id]);
+  });
+
+  it("case P: a one-off 2 days after the last scheduled deposit does not become the stream's last date", async () => {
+    const regular = ["2026-04-30", "2026-05-30", "2026-06-29", "2026-07-29", "2026-08-28", "2026-09-26"].map((d) => zelle(d, 500, "Hugo Bell"));
+    const extra = zelle("2026-09-28", 330, "Hugo Bell");
+    const [s, ...rest] = await detectRecurringTransfers([...regular, extra], AS_OF);
+    expect(rest).toHaveLength(0);
+    expect(s).toMatchObject({ frequency: "monthly", average_amount: 500, occurrence_count: 6, last_seen: "2026-09-26" });
+    expect(s.excluded_transaction_ids).toEqual([extra.transaction_id]);
+  });
+
+  it("a same-amount extra 3 days after a scheduled date is the one listed, not the scheduled deposit", async () => {
+    const regular = ["2026-05-01", "2026-05-31", "2026-06-30", "2026-07-30", "2026-08-29", "2026-09-28"].map((d) => zelle(d, 400, "Same Amount"));
+    const extra = zelle("2026-09-01", 400, "Same Amount");
+    const [s] = await detectRecurringTransfers([...regular, extra], AS_OF);
+    expect(s).toMatchObject({ frequency: "monthly", occurrence_count: 6, last_seen: "2026-09-28" });
+    expect(s.excluded_transaction_ids).toEqual([extra.transaction_id]);
+  });
+
+  it("N8: three deposits that happen to fall on a rhythm among many irregular ones are not a schedule", async () => {
+    const txns = [166, 131, 127, 88, 70, 39, 25, 12].map((d) => plaidVenmo(ago(d), 70, "Eli Moss"));
+    const [s, ...rest] = await detectRecurringTransfers(txns, AS_OF);
+    expect(rest).toHaveLength(0);
+    expect(s).toMatchObject({ frequency: null, pattern: "irregular", occurrence_count: 8 });
+  });
+
+  it("N7: a sender who paused and restarted is judged by the current schedule when it is most of the deposits", async () => {
+    const old = [170, 163, 156].map((d) => plaidVenmo(ago(d), 30, "Restart Weekly"));
+    const current = [52, 45, 38, 31, 24, 17, 10, 3].map((d) => plaidVenmo(ago(d), 30, "Restart Weekly"));
+    const [s] = await detectRecurringTransfers([...old, ...current], AS_OF);
+    expect(s).toMatchObject({ frequency: "weekly", pattern: "regular", occurrence_count: 8, first_seen: ago(52) });
+    expect(s.excluded_transaction_ids).toHaveLength(3);
+  });
+
+  it("N7: when the restarted schedule is under half the deposits, the sender is surfaced as irregular with all of them", async () => {
+    const txns = [172, 146, 120, 94, 56, 30, 4].map((d) => plaidVenmo(ago(d), 90, "Paul Reyes"));
+    const [s] = await detectRecurringTransfers(txns, AS_OF);
+    expect(s).toMatchObject({ frequency: null, pattern: "irregular", occurrence_count: 7 });
+  });
+});
+
 describe("streamReviewReasons", () => {
   it("follows the source status, adding irregular_pattern while undecided", () => {
     expect(streamReviewReasons("awaiting_family_statement", "regular")).toEqual(["awaiting_family_statement"]);

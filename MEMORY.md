@@ -270,3 +270,25 @@ Builder runs, not vetting evidence:
 - dev leftovers: 0.
 
 Next action: re-launch the Master Vetting sub-agent for Phase 2. Per PHASE_2_REWORK_2.md it must re-observe at least items 1, 5, 7, 8, and 10, plus the genericization check; a full re-observation is preferred.
+
+## PHASE 2 THIRD VETTING AND REWORK 3, 2026-09-30
+
+Third vetting: NOT COMPLETE, 11 PASS and 1 FAIL, recorded in PHASE_2_REWORK_3.md.
+- Item 5 (medium): a one-off landing a few days after a scheduled deposit took that deposit's place (cases G, I, P). The averages were 3.4 to 5.8 percent low, and the wrong deposit was listed for the reviewer.
+- Observations N7 to N11.
+
+Rework 3, done 2026-09-30 (the user paused it once mid-way for battery, then resumed):
+- Rule v2.1 (PHASE-2-SPEC.md AS BUILT 20): a scored tie-break (length, then amount, then timing, then earlier); active runs only (N7); RUN_SHARE 0.5 (N8).
+- AS BUILT 17's merged-sender wording corrected (N9).
+- The integration test confirms as a real reviewer (N10).
+- AS BUILT 21: removed the router.refresh() calls that raced revalidatePath. That race was the cause of the browser test failure seen three times ("Your documents" never appeared). It reproduced in 2 full runs before the fix, and 3 full runs after the fix were clean.
+
+Builder runs, not vetting evidence:
+- unit: 144 (the old detector fails 5 of the new tests);
+- integration: 20;
+- isolation: 29, with the report at 340 of 340;
+- Playwright: 9, three times;
+- dev leftovers: 0.
+
+Next action: re-launch the Master Vetting sub-agent for Phase 2 (a fourth vetting), with a full re-observation.
+

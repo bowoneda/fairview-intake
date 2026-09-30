@@ -56,6 +56,8 @@ export const LOOKBACK_DAYS = 180;
 export const MIN_OCCURRENCES = 3;
 export const AMOUNT_TOLERANCE = 0.5;
 export const SENDER_WORDS = 2;
+/** A regular run must include at least this share of the sender's in-band deposits (N8). */
+export const RUN_SHARE = 0.5;
 /** An irregular sender is surfaced only if it sent money this recently (days before the as of date). */
 export const IRREGULAR_RECENT_DAYS = 45;
 
@@ -116,34 +118,55 @@ function isSemiMonthly(dates: string[]): boolean {
   return tight(lower) && tight(upper) && Math.abs(lower.length - upper.length) <= 1 && apart >= 10 && apart <= 20;
 }
 
+/** Exact interval for the timing tie-break (INTERVAL above is the looser one for the activity check). */
+const EXACT_INTERVAL: Record<Frequency, number> = { weekly: 7, biweekly: 14, semi_monthly: 365.25 / 24, monthly: 365.25 / 12 };
+
+/** A run's quality: longer wins; then amounts closer to the sender's median; then gaps closer to the schedule. */
+interface Score { len: number; amount: number; timing: number }
+const better = (a: Score, b: Score) =>
+  a.len !== b.len ? a.len > b.len : a.amount !== b.amount ? a.amount < b.amount : a.timing < b.timing;
+
 /**
- * The longest run of deposits (in date order, skipping any) whose consecutive gaps all fall in the frequency's
- * band. Ties go to the run ending latest, then to the latest predecessor, so the result is deterministic.
+ * The best active run of deposits (in date order, skipping any) whose consecutive gaps all fall in the
+ * frequency's band. Among runs of the same length, the one whose amounts are closest to the sender's median
+ * wins, then the one whose gaps are closest to the frequency's interval, then the earlier deposit. So a one-off
+ * a few days after a scheduled deposit never takes that deposit's place (PHASE_2_REWORK_3.md cases G, I, P).
+ * Only runs still active at the as of date are considered, so a sender who paused and restarted is judged by the
+ * current schedule (N7). Deterministic: scores are integers (cents and hundredths of days), strict comparisons.
  */
-function longestRun(txns: Txn[], f: Frequency): Txn[] {
+function bestRun(txns: Txn[], f: Frequency, typical: number, asOf: string): Txn[] {
   const [lo, hi] = BAND[f];
-  const len = txns.map(() => 1);
+  const dev = (t: Txn) => Math.round(Math.abs(Math.abs(t.amount) - typical) * 100);
+  const score: Score[] = txns.map((t) => ({ len: 1, amount: dev(t), timing: 0 }));
   const prev = txns.map(() => -1);
   for (let i = 1; i < txns.length; i++) {
     for (let j = 0; j < i; j++) {
       const g = days(txns[j].date, txns[i].date);
-      if (g >= lo && g <= hi && len[j] + 1 >= len[i]) { len[i] = len[j] + 1; prev[i] = j; }
+      if (g < lo || g > hi) continue;
+      const s = { len: score[j].len + 1, amount: score[j].amount + dev(txns[i]),
+                  timing: score[j].timing + Math.round(Math.abs(g - EXACT_INTERVAL[f]) * 100) };
+      if (better(s, score[i])) { score[i] = s; prev[i] = j; }
     }
   }
   let end = -1;
-  for (let i = 0; i < txns.length; i++) if (end < 0 || len[i] >= len[end]) end = i;
+  for (let i = 0; i < txns.length; i++) {
+    if (days(txns[i].date, asOf) > INTERVAL[f] * 1.5) continue; // a run must still be active
+    if (end < 0 || better(score[i], score[end])) end = i;
+  }
   const run: Txn[] = [];
   for (let i = end; i >= 0; i = prev[i]) run.unshift(txns[i]);
   return run;
 }
 
-function bestRegularRun(txns: Txn[], asOf: string): { frequency: Frequency; run: Txn[] } | null {
+function bestRegularRun(txns: Txn[], typical: number, asOf: string): { frequency: Frequency; run: Txn[] } | null {
   let best: { frequency: Frequency; run: Txn[] } | null = null;
   for (const f of PREFERENCE) {
-    const run = longestRun(txns, f);
+    const run = bestRun(txns, f, typical, asOf);
     if (run.length < MIN_OCCURRENCES) continue;
+    // A schedule must account for most of the sender's deposits; a few that happen to fall on a rhythm among
+    // many irregular ones are not a schedule (N8).
+    if (run.length < txns.length * RUN_SHARE) continue;
     if (f === "semi_monthly" && !isSemiMonthly(run.map((t) => t.date))) continue;
-    if (days(run[run.length - 1].date, asOf) > INTERVAL[f] * 1.5) continue; // no longer active
     if (!best || run.length > best.run.length) best = { frequency: f, run };
   }
   return best;
@@ -191,7 +214,7 @@ export async function detectRecurringTransfers(transactions: Txn[], asOf: string
     const candidates = all.filter(inBand);
     if (candidates.length < MIN_OCCURRENCES) continue;
 
-    const regular = bestRegularRun(candidates, asOf);
+    const regular = bestRegularRun(candidates, typical, asOf);
     let chosen: Txn[];
     if (regular) {
       chosen = regular.run;

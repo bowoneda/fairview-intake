@@ -1,6 +1,5 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 import { Banner, Field, buttonClass, inputClass } from "@/components/ui";
 import { ingestUploadedDocument, requestDocumentUpload } from "@/app/[tenant]/apply/ingestion-actions";
@@ -30,7 +29,6 @@ type State =
   | { kind: "error"; message: string };
 
 export function DocumentUploader({ tenant, members }: { tenant: string; members: { id: string; name: string }[] }) {
-  const router = useRouter();
   const [state, setState] = useState<State>({ kind: "empty" });
   const [memberId, setMemberId] = useState(members[0]?.id ?? "");
   const [docKind, setDocKind] = useState<(typeof KINDS)[number]["value"]>("paystub");
@@ -52,8 +50,9 @@ export function DocumentUploader({ tenant, members }: { tenant: string; members:
     if (!put.ok) return setState({ kind: "error", message: "The upload did not finish. Check your connection and try again." });
     const outcome = await ingestUploadedDocument({ ...base, path: ticket.path });
     if (!outcome.ok) return setState({ kind: "error", message: outcome.message });
+    // No router.refresh(): the action's revalidatePath returns the updated page in the same response. A second
+    // refresh here raced it, and on a slow connection the cancelled render left the list stale.
     setState({ kind: "uploaded", name: f.name, size: f.size, review: outcome.reasons });
-    router.refresh();
   }
 
   return (
