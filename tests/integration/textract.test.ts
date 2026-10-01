@@ -3,7 +3,7 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { Client as PgClient } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import expected from "../fixtures/documents/expected.json";
-import { PUBLISHABLE_KEY, SUPABASE_URL, ownerDb, serviceClient } from "../isolation/env";
+import { PUBLISHABLE_KEY, SUPABASE_URL, deleteUserOrThrow, ownerDb, serviceClient } from "../isolation/env";
 
 // PHASE-2-SPEC.md, TESTS: each fixture through the deployed document-ingest function and real Textract,
 // compared with the answer key; the two page PDF refused before any AWS call. Makes a few billable AWS calls.
@@ -74,7 +74,7 @@ afterAll(async () => {
     await db.query(`delete from public.${t} where applicant_id = any($1::uuid[])`, [apps]);
   }
   await db.query(`delete from public.applicants where id = any($1::uuid[])`, [apps]);
-  for (const id of ids) await svc.auth.admin.deleteUser(id);
+  for (const id of ids) await deleteUserOrThrow(svc, id);
   const left = (await db.query(`select (select count(*) from auth.users where email like $1)::int u,
     (select count(*) from storage.objects where bucket_id = $2 and (storage.foldername(name))[2] = any($3::text[]))::int o`,
     [`${EMAIL_PREFIX}%`, BUCKET, apps])).rows[0];

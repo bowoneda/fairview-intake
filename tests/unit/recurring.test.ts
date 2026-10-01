@@ -184,6 +184,58 @@ describe("detectRecurringTransfers when an extra lands just after a scheduled de
   });
 });
 
+// PHASE_2_REWORK_4.md item 5, with the vetter's dates: varying scheduled amounts, and one missed payment.
+describe("detectRecurringTransfers with varying amounts or a missed payment (PHASE_2_REWORK_4.md)", () => {
+  const app = (name: string) => (date: string, amount: number, sender: string): Txn =>
+    ({ ...plaidVenmo(date, amount, sender), name, original_description: `${name} from ${sender}` });
+  const zelle = app("Zelle"), venmo = app("Venmo"), cash = app("Cash App");
+  const every = (start: string, step: number, n: number) => Array.from({ length: n }, (_, k) => new Date(Date.parse(start) + k * step * 86_400_000).toISOString().slice(0, 10));
+
+  it("V1: with varying scheduled amounts, a one-off 3 days after a deposit nearer the median still stays out", async () => {
+    const plan: [string, number][] = [["2026-04-17", 240], ["2026-05-17", 310], ["2026-06-16", 265], ["2026-07-16", 330], ["2026-08-15", 225], ["2026-09-14", 290]];
+    const extra = zelle("2026-08-18", 280, "Vic Hale");
+    const [s, ...rest] = await detectRecurringTransfers([...plan.map(([d, a]) => zelle(d, a, "Vic Hale")), extra], AS_OF);
+    expect(rest).toHaveLength(0);
+    expect(s).toMatchObject({ frequency: "monthly", average_amount: 276.67, occurrence_count: 6, first_seen: "2026-04-17", last_seen: "2026-09-14", missed_payments: 0 });
+    expect(s.excluded_transaction_ids).toEqual([extra.transaction_id]);
+  });
+
+  it("V2: the same at the end of the run, which keeps its last scheduled date", async () => {
+    const plan: [string, number][] = [["2026-04-06", 410], ["2026-05-06", 395], ["2026-06-05", 400], ["2026-07-05", 405], ["2026-08-04", 390], ["2026-09-03", 350]];
+    const extra = venmo("2026-09-06", 400, "Wes Ford");
+    const [s] = await detectRecurringTransfers([...plan.map(([d, a]) => venmo(d, a, "Wes Ford")), extra], AS_OF);
+    expect(s).toMatchObject({ frequency: "monthly", average_amount: 391.67, occurrence_count: 6, last_seen: "2026-09-03" });
+    expect(s.excluded_transaction_ids).toEqual([extra.transaction_id]);
+  });
+
+  it("M1: a biweekly sender who misses one payment stays biweekly with all 12 deposits", async () => {
+    const dates = every("2026-04-10", 14, 13).filter((d) => d !== "2026-08-28");
+    const [s, ...rest] = await detectRecurringTransfers(dates.map((d) => zelle(d, 120, "Bea Lund")), AS_OF);
+    expect(rest).toHaveLength(0);
+    expect(s).toMatchObject({ frequency: "biweekly", occurrence_count: 12, missed_payments: 1, first_seen: "2026-04-10", last_seen: "2026-09-25" });
+    expect(s.excluded_transaction_ids).toEqual([]);
+  });
+
+  it("M2: a weekly sender who misses one week stays weekly with all 24 deposits", async () => {
+    const dates = every("2026-04-06", 7, 25).filter((d) => d !== "2026-08-31");
+    const [s] = await detectRecurringTransfers(dates.map((d) => venmo(d, 40, "Dee Moor")), AS_OF);
+    expect(s).toMatchObject({ frequency: "weekly", occurrence_count: 24, missed_payments: 1, last_seen: "2026-09-21" });
+    expect(s.excluded_transaction_ids).toEqual([]);
+  });
+
+  it("a monthly sender who misses one month stays monthly", async () => {
+    const dates = every("2026-04-05", 30, 6).filter((_, i) => i !== 4);
+    const [s] = await detectRecurringTransfers(dates.map((d) => cash(d, 150, "Fay Orr")), AS_OF);
+    expect(s).toMatchObject({ frequency: "monthly", occurrence_count: 5, missed_payments: 1 });
+  });
+
+  it("only one missed payment is bridged: two in a row are not a schedule", async () => {
+    const dates = every("2026-04-10", 14, 13).filter((d) => d !== "2026-07-31" && d !== "2026-08-14");
+    const [s] = await detectRecurringTransfers(dates.map((d) => zelle(d, 120, "Two Missed")), AS_OF);
+    expect(s.frequency === "biweekly" && s.occurrence_count === 11).toBe(false);
+  });
+});
+
 describe("streamReviewReasons", () => {
   it("follows the source status, adding irregular_pattern while undecided", () => {
     expect(streamReviewReasons("awaiting_family_statement", "regular")).toEqual(["awaiting_family_statement"]);

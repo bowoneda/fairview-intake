@@ -3,7 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import type { Client as PgClient } from "pg";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { NORMALIZED_KEYS, normalizedIncomeRecordSchema } from "../../supabase/functions/_shared/normalized";
-import { PUBLISHABLE_KEY, SUPABASE_URL, ownerDb, serviceClient } from "../isolation/env";
+import { PUBLISHABLE_KEY, SUPABASE_URL, deleteUserOrThrow, ownerDb, serviceClient } from "../isolation/env";
 
 // PROCESS-RULES.md Phase 2: "one record from each pipeline validates against the single shared schema with an
 // identical key set". Each pipeline runs for real (Plaid bank, Plaid payroll, Textract); the stored rows are read
@@ -75,7 +75,7 @@ afterAll(async () => {
   }
   await db.query(`delete from public.applicants where id = $1`, [appId]);
   await db.query(`delete from public.webhook_events where provider_ref = any($1::text[])`, [refs]);
-  await svc.auth.admin.deleteUser(userId);
+  await deleteUserOrThrow(svc, userId);
   await db.end();
 });
 

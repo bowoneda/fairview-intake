@@ -54,7 +54,8 @@ export function BankConnect({ tenant, members, product = "transactions" }: {
       setBusy(false);
       return setMessage({ tone: "error", text: "The secure connection window did not load. Check your connection, then refresh the page and try again." });
     }
-    const start = await startBankConnection(tenant, memberId, product);
+    const start = await startBankConnection(tenant, memberId, product)
+      .catch(() => ({ ok: false as const, message: "We could not start the bank connection. Check your connection, then try again." }));
     if (!start.ok) {
       setBusy(false);
       return setMessage({ tone: "error", text: start.message });
@@ -62,7 +63,9 @@ export function BankConnect({ tenant, members, product = "transactions" }: {
     const handler = window.Plaid!.create({
       token: start.linkToken,
       onSuccess: async (publicToken) => {
-        const done = await finishBankConnection(tenant, start.connectionId, publicToken);
+        // A thrown request must not leave the button busy for good (PHASE_2_REWORK_4.md N12).
+        const done = await finishBankConnection(tenant, start.connectionId, publicToken)
+          .catch(() => ({ ok: false, message: "We could not finish connecting your account. Check your connection, then try again." }));
         setBusy(false);
         setMessage(done.ok ? { tone: "ok", text: copy.done } : { tone: "error", text: done.message ?? "Try again." });
         handler.destroy();

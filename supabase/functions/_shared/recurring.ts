@@ -43,6 +43,8 @@ export interface DetectedStream {
   /** null when the sender's deposits have no regular schedule (pattern "irregular"). */
   frequency: Frequency | null;
   pattern: "regular" | "irregular";
+  /** Payments missing inside the run (a gap of two intervals); at most MAX_MISSED. Phase 3 and the reviewer see it. */
+  missed_payments: number;
   average_amount: number;
   occurrence_count: number;
   first_seen: string;
@@ -52,11 +54,13 @@ export interface DetectedStream {
   excluded_transaction_ids: string[];
 }
 
+/** Stored with every stream so an auditor can tell which rule produced it (PHASE-2-SPEC.md AS BUILT 22, N13). */
+export const RULE_VERSION = "PHASE-2-SPEC recurring transfer rule v3 (AS BUILT 22)";
 export const LOOKBACK_DAYS = 180;
 export const MIN_OCCURRENCES = 3;
 export const AMOUNT_TOLERANCE = 0.5;
 export const SENDER_WORDS = 2;
-/** A regular run must include at least this share of the sender's in-band deposits (N8). */
+/** A regular run must include more than this share of the sender's in-band deposits (N8). */
 export const RUN_SHARE = 0.5;
 /** An irregular sender is surfaced only if it sent money this recently (days before the as of date). */
 export const IRREGULAR_RECENT_DAYS = 45;
@@ -121,53 +125,87 @@ function isSemiMonthly(dates: string[]): boolean {
 /** Exact interval for the timing tie-break (INTERVAL above is the looser one for the activity check). */
 const EXACT_INTERVAL: Record<Frequency, number> = { weekly: 7, biweekly: 14, semi_monthly: 365.25 / 24, monthly: 365.25 / 12 };
 
-/** A run's quality: longer wins; then amounts closer to the sender's median; then gaps closer to the schedule. */
-interface Score { len: number; amount: number; timing: number }
+/**
+ * A run's quality, compared in this order: more deposits; then gaps closer to the run's own cadence (timing);
+ * then amounts closer to the sender's median; then the earlier deposit. Timing comes before amount because
+ * scheduled amounts can vary (people sharing bills send different sums), while a one-off a few days off the
+ * schedule always shows in the timing (PHASE_2_REWORK_4.md V1, V2). Integers: hundredths of days and cents.
+ */
+interface Score { len: number; timing: number; amount: number }
 const better = (a: Score, b: Score) =>
-  a.len !== b.len ? a.len > b.len : a.amount !== b.amount ? a.amount < b.amount : a.timing < b.timing;
+  a.len !== b.len ? a.len > b.len : a.timing !== b.timing ? a.timing < b.timing : a.amount < b.amount;
+
+/** At most this many missed payments (one gap of two intervals) may sit inside a run (PHASE_2_REWORK_4.md M1, M2). */
+export const MAX_MISSED = 1;
+
+interface Run { txns: Txn[]; missed: number }
 
 /**
- * The best active run of deposits (in date order, skipping any) whose consecutive gaps all fall in the
- * frequency's band. Among runs of the same length, the one whose amounts are closest to the sender's median
- * wins, then the one whose gaps are closest to the frequency's interval, then the earlier deposit. So a one-off
- * a few days after a scheduled deposit never takes that deposit's place (PHASE_2_REWORK_3.md cases G, I, P).
- * Only runs still active at the as of date are considered, so a sender who paused and restarted is judged by the
- * current schedule (N7). Deterministic: scores are integers (cents and hundredths of days), strict comparisons.
+ * The best active run of deposits (in date order, skipping any) whose consecutive gaps fall in the frequency's
+ * band, or, at most MAX_MISSED times, in twice the band (one missed payment). Timing is scored against
+ * `cadence`, in days per interval; a doubled gap is scored against two intervals. Only runs still active at the
+ * as of date are considered, so a sender who paused and restarted is judged by the current schedule (N7).
  */
-function bestRun(txns: Txn[], f: Frequency, typical: number, asOf: string): Txn[] {
+function bestRunAt(txns: Txn[], f: Frequency, typical: number, asOf: string, cadence: number): Run {
   const [lo, hi] = BAND[f];
-  const dev = (t: Txn) => Math.round(Math.abs(Math.abs(t.amount) - typical) * 100);
-  const score: Score[] = txns.map((t) => ({ len: 1, amount: dev(t), timing: 0 }));
-  const prev = txns.map(() => -1);
+  const amt = (t: Txn) => Math.round(Math.abs(Math.abs(t.amount) - typical) * 100);
+  // State per deposit and per number of missed payments used so far (0..MAX_MISSED).
+  const score: (Score | null)[][] = txns.map((t) => Array.from({ length: MAX_MISSED + 1 }, (_, m) => (m === 0 ? { len: 1, timing: 0, amount: amt(t) } : null)));
+  const prev: [number, number][][] = txns.map(() => Array.from({ length: MAX_MISSED + 1 }, () => [-1, -1] as [number, number]));
   for (let i = 1; i < txns.length; i++) {
     for (let j = 0; j < i; j++) {
       const g = days(txns[j].date, txns[i].date);
-      if (g < lo || g > hi) continue;
-      const s = { len: score[j].len + 1, amount: score[j].amount + dev(txns[i]),
-                  timing: score[j].timing + Math.round(Math.abs(g - EXACT_INTERVAL[f]) * 100) };
-      if (better(s, score[i])) { score[i] = s; prev[i] = j; }
+      // A missed payment bridges two consecutive deposits only: if the sender sent anything in between, that gap
+      // is not a missed payment (a pause and restart, N7).
+      const step = g >= lo && g <= hi ? 1 : i === j + 1 && g >= 2 * lo && g <= 2 * hi ? 2 : 0;
+      if (!step) continue;
+      for (let m = 0; m <= MAX_MISSED; m++) {
+        const from = score[j][m];
+        const to = m + (step - 1);
+        if (!from || to > MAX_MISSED) continue;
+        const s = { len: from.len + 1, timing: from.timing + Math.round(Math.abs(g - step * cadence) * 100), amount: from.amount + amt(txns[i]) };
+        const cur = score[i][to];
+        if (!cur || better(s, cur)) { score[i][to] = s; prev[i][to] = [j, m]; }
+      }
     }
   }
-  let end = -1;
+  let end: [number, number] = [-1, -1];
   for (let i = 0; i < txns.length; i++) {
     if (days(txns[i].date, asOf) > INTERVAL[f] * 1.5) continue; // a run must still be active
-    if (end < 0 || better(score[i], score[end])) end = i;
+    for (let m = 0; m <= MAX_MISSED; m++) {
+      const s = score[i][m];
+      if (!s) continue;
+      // Fewer missed payments wins a tie, so a missed payment is only assumed when it adds deposits.
+      if (end[0] < 0 || better(s, score[end[0]][end[1]]!) || (!better(score[end[0]][end[1]]!, s) && m < end[1])) end = [i, m];
+    }
   }
   const run: Txn[] = [];
-  for (let i = end; i >= 0; i = prev[i]) run.unshift(txns[i]);
-  return run;
+  for (let [i, m] = end; i >= 0; [i, m] = prev[i][m]) run.unshift(txns[i]);
+  return { txns: run, missed: end[1] < 0 ? 0 : end[1] };
 }
 
-function bestRegularRun(txns: Txn[], typical: number, asOf: string): { frequency: Frequency; run: Txn[] } | null {
-  let best: { frequency: Frequency; run: Txn[] } | null = null;
+/**
+ * Two passes: the first, against the frequency's nominal interval, finds the run; the second re-scores timing
+ * against that run's own median interval, so the run's real cadence (say every 30 days, drifting across month
+ * ends) decides between two deposits a few days apart, not the calendar average.
+ */
+function bestRun(txns: Txn[], f: Frequency, typical: number, asOf: string): Run {
+  const first = bestRunAt(txns, f, typical, asOf, EXACT_INTERVAL[f]);
+  if (first.txns.length < 2) return first;
+  const gaps = first.txns.slice(1).map((t, i) => days(first.txns[i].date, t.date)).map((g) => (g > BAND[f][1] ? g / 2 : g));
+  return bestRunAt(txns, f, typical, asOf, median(gaps));
+}
+
+function bestRegularRun(txns: Txn[], typical: number, asOf: string): { frequency: Frequency; run: Txn[]; missed: number } | null {
+  let best: { frequency: Frequency; run: Txn[]; missed: number } | null = null;
   for (const f of PREFERENCE) {
-    const run = bestRun(txns, f, typical, asOf);
+    const { txns: run, missed } = bestRun(txns, f, typical, asOf);
     if (run.length < MIN_OCCURRENCES) continue;
     // A schedule must account for most of the sender's deposits; a few that happen to fall on a rhythm among
     // many irregular ones are not a schedule (N8).
-    if (run.length < txns.length * RUN_SHARE) continue;
+    if (run.length <= txns.length * RUN_SHARE) continue;
     if (f === "semi_monthly" && !isSemiMonthly(run.map((t) => t.date))) continue;
-    if (!best || run.length > best.run.length) best = { frequency: f, run };
+    if (!best || run.length > best.run.length || (run.length === best.run.length && missed < best.missed)) best = { frequency: f, run, missed };
   }
   return best;
 }
@@ -231,6 +269,7 @@ export async function detectRecurringTransfers(transactions: Txn[], asOf: string
       app: g.app,
       frequency: regular ? regular.frequency : null,
       pattern: regular ? "regular" : "irregular",
+      missed_payments: regular ? regular.missed : 0,
       average_amount: Math.round((total / chosen.length) * 100) / 100,
       occurrence_count: chosen.length,
       first_seen: chosen[0].date,

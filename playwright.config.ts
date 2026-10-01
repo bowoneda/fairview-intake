@@ -21,10 +21,13 @@ export default defineConfig({
     navigationTimeout: 90_000,
   },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
+  // A production build, not the dev server: on this machine the dev server compiled each route on first use (29 to
+  // 35 s per page) and once left a server action unanswered (PHASE_2_REWORK_4.md N12). Production is also what
+  // Vercel serves. Secure cookies still work, since browsers treat http://localhost as a secure context.
   webServer: {
-    command: "npm run dev -- -p 3100",
+    command: "npm run build && npm run start -- -p 3100",
     url: "http://localhost:3100",
     reuseExistingServer: true,
-    timeout: 180_000,
+    timeout: 600_000,
   },
 });

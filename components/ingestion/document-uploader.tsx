@@ -22,6 +22,14 @@ const REASON_TEXT: Record<string, string> = {
   frequency_inferred: "the pay frequency was worked out from the dates",
 };
 
+/** Longest wait for one server step; Textract reads a page in seconds, so this only trips on a stalled request. */
+const STEP_TIMEOUT_MS = 120_000;
+const TIMED_OUT = Symbol("timed out");
+function withTimeout<T>(p: Promise<T>): Promise<T | typeof TIMED_OUT> {
+  return Promise.race([p, new Promise<typeof TIMED_OUT>((r) => setTimeout(() => r(TIMED_OUT), STEP_TIMEOUT_MS))]);
+}
+const STALLED = "This is taking too long. Check your connection, then try again. If the document was saved, it will show in your list.";
+
 type State =
   | { kind: "empty" }
   | { kind: "uploading"; name: string }
@@ -35,7 +43,18 @@ export function DocumentUploader({ tenant, members }: { tenant: string; members:
   const photo = useRef<HTMLInputElement>(null);
   const file = useRef<HTMLInputElement>(null);
 
+  // DESIGN.md, upload control: every failure ends in a message saying what happened and what to do, and the
+  // buttons work again. A thrown or never-answering request must not leave the page on "Reading..." for good
+  // (PHASE_2_REWORK_4.md N12).
   async function handle(f: File | undefined) {
+    try {
+      await upload(f);
+    } catch {
+      setState({ kind: "error", message: "Something went wrong while sending your document. Check your connection, then try again." });
+    }
+  }
+
+  async function upload(f: File | undefined) {
     if (!f) return;
     if (f.size > MAX) return setState({ kind: "error", message: `This file is ${(f.size / 1048576).toFixed(0)} MB. Files must be 10 MB or smaller. Try a photo instead of a scan.` });
     const mime = f.type === "image/jpg" ? "image/jpeg" : f.type;
@@ -44,11 +63,14 @@ export function DocumentUploader({ tenant, members }: { tenant: string; members:
     }
     setState({ kind: "uploading", name: f.name });
     const base = { tenant, memberId, kind: docKind, mime: mime as "image/jpeg" | "image/png" | "application/pdf", size: f.size };
-    const ticket = await requestDocumentUpload(base);
+    const ticket = await withTimeout(requestDocumentUpload(base));
+    if (ticket === TIMED_OUT) return setState({ kind: "error", message: STALLED });
     if (!ticket.ok) return setState({ kind: "error", message: ticket.message });
-    const put = await fetch(ticket.signedUrl, { method: "PUT", headers: { "Content-Type": mime, "x-upsert": "false" }, body: f });
+    const put = await withTimeout(fetch(ticket.signedUrl, { method: "PUT", headers: { "Content-Type": mime, "x-upsert": "false" }, body: f }));
+    if (put === TIMED_OUT) return setState({ kind: "error", message: STALLED });
     if (!put.ok) return setState({ kind: "error", message: "The upload did not finish. Check your connection and try again." });
-    const outcome = await ingestUploadedDocument({ ...base, path: ticket.path });
+    const outcome = await withTimeout(ingestUploadedDocument({ ...base, path: ticket.path }));
+    if (outcome === TIMED_OUT) return setState({ kind: "error", message: STALLED });
     if (!outcome.ok) return setState({ kind: "error", message: outcome.message });
     // No router.refresh(): the action's revalidatePath returns the updated page in the same response. A second
     // refresh here raced it, and on a slow connection the cancelled render left the list stale.

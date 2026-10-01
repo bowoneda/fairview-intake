@@ -292,3 +292,22 @@ Builder runs, not vetting evidence:
 
 Next action: re-launch the Master Vetting sub-agent for Phase 2 (a fourth vetting), with a full re-observation.
 
+## PHASE 2 FOURTH VETTING AND REWORK 4, 2026-10-01
+
+Fourth vetting: NOT COMPLETE, 11 PASS and 1 FAIL, recorded in PHASE_2_REWORK_4.md. It was interrupted once by a usage limit and resumed.
+- Item 5 (medium): with varying scheduled amounts, a one-off still won on amount (V1, V2). One missed payment dropped a sender to a coarser frequency with half its deposits listed (M1, M2). Both are older defects that earlier vettings had not probed.
+- Observations N12 to N15: the uploader hang, the stale rule label, a teardown leftover user, and a misleading confirm message.
+
+Rework 4:
+- Rule v3 (PHASE-2-SPEC.md AS BUILT 22): timing before amount, against the run's own cadence; one missed payment bridged and recorded; a strict majority required.
+- AS BUILT 23 covers the rest: uploader and bank-connect error and timeout paths; browser tests on a production build; deleteUserOrThrow; migration 1600; the cron-race-proof payroll retry test.
+
+Builder runs, not vetting evidence:
+- unit: 150;
+- integration: 21;
+- isolation: 29, with the report at 340 of 340;
+- Playwright: 9 of 9 three times on the production build;
+- dev leftovers: 0.
+
+Next action: re-launch the Master Vetting sub-agent for Phase 2 (a fifth vetting).
+

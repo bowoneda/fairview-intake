@@ -2,7 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import { createClient } from "@supabase/supabase-js";
 import { expect, test } from "@playwright/test";
 import type { Client as PgClient } from "pg";
-import { PUBLISHABLE_KEY, SUPABASE_URL, ownerDb, serviceClient } from "../isolation/env";
+import { PUBLISHABLE_KEY, SUPABASE_URL, deleteUserOrThrow, ownerDb, serviceClient } from "../isolation/env";
 
 // PHASE-2-SPEC.md, INTAKE UI, in a real browser: a document uploaded through the actual control is read by
 // Textract and stored; a detected transfer is answered through the actual form. Sign in uses genuine session
@@ -45,7 +45,7 @@ test.afterAll(async () => {
     await db.query(`delete from public.${t} where applicant_id = $1`, [appId]);
   }
   await db.query(`delete from public.applicants where id = $1`, [appId]);
-  await svc.auth.admin.deleteUser(userId);
+  await deleteUserOrThrow(svc, userId);
   await db.end();
 });
 

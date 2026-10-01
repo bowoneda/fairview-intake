@@ -1,7 +1,7 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { Client as PgClient } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { PUBLISHABLE_KEY, SUPABASE_URL, ownerDb, serviceClient } from "../isolation/env";
+import { PUBLISHABLE_KEY, SUPABASE_URL, deleteUserOrThrow, ownerDb, serviceClient } from "../isolation/env";
 
 // PHASE-2-SPEC.md, TESTS (Plaid): the real Plaid Sandbox through the deployed functions. The Plaid secret stays in
 // Edge Function secrets; plaid-sandbox (sandbox only) replaces the Link UI and runs the same exchange code.
@@ -96,9 +96,9 @@ afterAll(async () => {
   }
   await db.query(`delete from public.applicants where id = any($1::uuid[])`, [apps]);
   await db.query(`delete from public.webhook_events where provider = 'plaid' and (provider_ref = any($1::text[]) or id = any($3::uuid[]) or (signature_valid = false and received_at >= $2))`, [items, startedAt, insertedEvents]);
-  for (const u of users) await svc.auth.admin.deleteUser(u.id);
+  for (const u of users) await deleteUserOrThrow(svc, u.id);
   await db.query(`delete from public.audit_log where actor_id = any($1::uuid[])`, [reviewers]);
-  for (const id of reviewers) await svc.auth.admin.deleteUser(id);
+  for (const id of reviewers) await deleteUserOrThrow(svc, id);
   const left = (await db.query(`select (select count(*) from auth.users where email like $1)::int u, (select count(*) from public.provider_connections where applicant_id = any($2::uuid[]))::int c`, [`${EMAIL_PREFIX}%`, apps])).rows[0];
   console.log(`teardown: users left ${left.u}, connections left ${left.c}`);
   await db.end();
@@ -332,6 +332,39 @@ describe("Plaid Sandbox through the deployed functions", () => {
       [x.raw_payload.stream.frequency, x.raw_payload.stream.excluded_transaction_ids.length])).toEqual([["semi_monthly", 1], ["monthly", 1], ["monthly", 1]]);
   });
 
+  it("rework 4 item 5: varying amounts and a missed payment (cases V1, V2, M1, M2)", async () => {
+    // PHASE_2_REWORK_4.md: the vetter's shapes, as days before today, on one account through Plaid.
+    const t = (d: number, amount: number, text: string) => txn(daysAgo(d), -amount, text);
+    const v1: [number, number][] = [[155, 240], [125, 310], [95, 265], [65, 330], [35, 225], [5, 290]];
+    const v2: [number, number][] = [[154, 410], [124, 395], [94, 400], [64, 405], [34, 390], [4, 350]];
+    const m1 = Array.from({ length: 12 }, (_, k) => 164 - 14 * k).filter((d) => d !== 66);
+    const m2 = Array.from({ length: 25 }, (_, k) => 170 - 7 * k).filter((d) => d !== 65);
+    const scenario = { override_accounts: [{ type: "depository", subtype: "checking", starting_balance: 1500,
+      transactions: [
+        ...v1.map(([d, a]) => t(d, a, "Zelle from Vic Hale")), t(32, 280, "Zelle from Vic Hale"), // V1: 3 days after the 35-day one
+        ...v2.map(([d, a]) => t(d, a, "Venmo from Wes Ford")), t(1, 400, "Venmo from Wes Ford"), // V2: 3 days after the last
+        ...m1.map((d) => t(d, 120, "Zelle from Bea Lund")), // M1: biweekly, one payment missed
+        ...m2.map((d) => t(d, 40, "Venmo from Dee Moor")), // M2: weekly, one week missed
+      ] }] };
+    const u = await makeApplicant("rework5d");
+    const r = await call("plaid-sandbox", u.token, { action: "link", household_member_id: u.memberId, custom_user: scenario });
+    expect(r.status, JSON.stringify(r.body)).toBe(200);
+    const expected = [["weekly", 40, 24], ["biweekly", 120, 11], ["monthly", 276.67, 6], ["monthly", 391.67, 6]];
+    const rows = await waitFor("four sources in their final state", async () => {
+      const got = (await db.query(`select s.frequency, s.average_amount, s.occurrence_count, s.last_seen, r.raw_payload
+        from public.income_sources s join public.income_records r on r.income_source_id = s.id
+        where s.provider_connection_id = $1 and s.source_type = 'recurring_transfer' order by s.average_amount`, [r.body.connection_id])).rows;
+      const shape = got.map((x: { frequency: string; average_amount: string; occurrence_count: number }) => [x.frequency, Number(x.average_amount), x.occurrence_count]);
+      return JSON.stringify(shape) === JSON.stringify(expected) ? got : null;
+    }, 150_000);
+    const day = (v: unknown) => (v instanceof Date ? v.toISOString().slice(0, 10) : String(v));
+    expect(day(rows[3].last_seen)).toBe(daysAgo(4)); // V2 keeps its last scheduled date
+    type Stream = { excluded_transaction_ids: string[]; missed_payments: number };
+    expect(rows.map((x: { raw_payload: { stream: Stream } }) => [x.raw_payload.stream.excluded_transaction_ids.length, x.raw_payload.stream.missed_payments]))
+      .toEqual([[0, 1], [0, 1], [1, 0], [1, 0]]);
+    expect(rows[0].raw_payload.rule).toMatch(/rule v3/); // N13: the stored label names the rule that ran
+  });
+
   it("payroll: a Link token for Plaid Payroll Income", async () => {
     const r = await call("plaid-link-token", owner.token, { household_member_id: owner.memberId, product: "payroll_income" });
     expect(r.status, JSON.stringify(r.body)).toBe(200);
@@ -364,11 +397,19 @@ describe("Plaid Sandbox through the deployed functions", () => {
 
     // Re-read through the retry path (an INCOME event keyed by the Plaid user id): no duplicates.
     const userRef = (await db.query(`select provider_user_ref from public.provider_connections where id = $1`, [payrollConnection])).rows[0].provider_user_ref;
-    await db.query(`insert into public.webhook_events (provider, event_id, event_type, provider_ref, signature_valid, status, attempts, next_attempt_at)
-      values ('plaid', $1, 'INCOME.USER_INCOME_VERIFICATION', $2, true, 'failed', 1, now() - interval '1 minute')`, [`test-payroll-${crypto.randomUUID()}`, userRef]);
+    const eventId = (await db.query(`insert into public.webhook_events (provider, event_id, event_type, provider_ref, signature_valid, status, attempts, next_attempt_at)
+      values ('plaid', $1, 'INCOME.USER_INCOME_VERIFICATION', $2, true, 'failed', 1, now() - interval '1 minute') returning id`,
+      [`test-payroll-${crypto.randomUUID()}`, userRef])).rows[0].id;
     const secret = (await db.query(`select decrypted_secret from vault.decrypted_secrets where name = 'cron_secret'`)).rows[0].decrypted_secret;
     const retry = await call("ingestion-retry", null, {}, { "x-cron-secret": secret });
-    expect(retry.body.results?.some((x: { status: string }) => x.status === "processed"), JSON.stringify(retry.body)).toBe(true);
+    expect(retry.status).toBe(200);
+    // The 5 minute pg_cron run may claim the event first (claims are atomic, skip locked), so check the event's
+    // outcome rather than which caller processed it.
+    const outcome = await waitFor("the payroll event to be processed", async () => {
+      const e = (await db.query(`select status from public.webhook_events where id = $1`, [eventId])).rows[0];
+      return e.status === "processed" ? e : null;
+    }, 60_000);
+    expect(outcome.status).toBe("processed");
     const after = (await db.query(`select count(*)::int n from public.income_records where provider_connection_id = $1`, [payrollConnection])).rows[0].n;
     expect(after).toBe(rows.length);
     await db.query(`delete from public.webhook_events where provider_ref = $1`, [userRef]);

@@ -43,3 +43,16 @@ export async function ownerDb(): Promise<PgClient> {
   await db.connect();
   return db;
 }
+
+/**
+ * Delete a test user, retrying a transient failure; throws if the user is still there, so a teardown that leaves
+ * a user behind fails loudly instead of passing (PHASE_2_REWORK_4.md N14).
+ */
+export async function deleteUserOrThrow(svc: SupabaseClient, id: string): Promise<void> {
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    const { error } = await svc.auth.admin.deleteUser(id);
+    if (!error || /not.?found/i.test(error.message)) return;
+    if (attempt === 3) throw new Error(`teardown could not delete test user ${id}: ${error.message}`);
+    await new Promise((r) => setTimeout(r, 2000 * attempt));
+  }
+}

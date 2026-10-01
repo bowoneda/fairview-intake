@@ -4,7 +4,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { normalize, toIncomeRecordRow } from "./normalized.ts";
 import { mapPayStub, type PlaidPayStub } from "./payroll.ts";
-import { detectRecurringTransfers, streamReviewReasons, type Txn } from "./recurring.ts";
+import { detectRecurringTransfers, RULE_VERSION, streamReviewReasons, type Txn } from "./recurring.ts";
 import { redactPayload } from "./redact.ts";
 
 export const PLAID_ENV = Deno.env.get("PLAID_ENV") ?? "sandbox";
@@ -143,7 +143,7 @@ export async function ingestItem(svc: SupabaseClient, c: Connection, asOf = new 
       pay_period_end: s.last_seen, pay_date: s.last_seen, ytd_gross: null, ytd_through_date: null, earnings_year_start: null,
       deductions: [], source_confidence: null, needs_review: reasons.length > 0, review_reasons: reasons, captured_at: now,
     });
-    const raw = redactPayload({ rule: "PHASE-2-SPEC recurring transfer rule v2 (AS BUILT 17)", as_of: asOf, stream: s }).value;
+    const raw = redactPayload({ rule: RULE_VERSION, as_of: asOf, stream: s }).value;
     // One atomic upsert keyed by the stream: the first ingestion and Plaid's first webhooks run concurrently, and a
     // delete-then-insert let one run read between the two (no record) or both insert (a duplicate).
     const { error: recErr } = await svc.from("income_records").upsert({
