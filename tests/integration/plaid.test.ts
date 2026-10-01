@@ -362,7 +362,7 @@ describe("Plaid Sandbox through the deployed functions", () => {
     type Stream = { excluded_transaction_ids: string[]; missed_payments: number };
     expect(rows.map((x: { raw_payload: { stream: Stream } }) => [x.raw_payload.stream.excluded_transaction_ids.length, x.raw_payload.stream.missed_payments]))
       .toEqual([[0, 1], [0, 1], [1, 0], [1, 0]]);
-    expect(rows[0].raw_payload.rule).toMatch(/rule v4.1/); // N13: the stored label names the rule that ran
+    expect(rows[0].raw_payload.rule).toMatch(/rule v4.2/); // N13: the stored label names the rule that ran
   });
 
   it("ITEM 5 ACCEPTANCE BAR: a clean sender is exact and unflagged; ambiguous senders are surfaced, flagged, and list every deposit", async () => {
@@ -396,10 +396,10 @@ describe("Plaid Sandbox through the deployed functions", () => {
       expect(s.ambiguity.length, `row ${i}`).toBeGreaterThan(0);
       expect(rows[i].review_reasons.some((x: string) => x === "schedule_ambiguous" || x === "irregular_pattern"), `row ${i}`).toBe(true);
     }
-    expect(rows[0].raw_payload.rule).toMatch(/rule v4.1/);
+    expect(rows[0].raw_payload.rule).toMatch(/rule v4.2/);
   });
 
-  it("rework 6 item 5: a 4-deposit biweekly sender is clean biweekly; a sender whose amount changed is surfaced and flagged", async () => {
+  it("rework 6/7 item 5: a 4-deposit biweekly sender is proposed biweekly and flagged; a sender whose amount changed is surfaced and flagged", async () => {
     // PHASE_2_REWORK_6.md: the clean input it misread, and a qualifying sender it dropped.
     const t = (d: number, amount: number, text: string) => txn(daysAgo(d), -amount, text);
     const scenario = { override_accounts: [{ type: "depository", subtype: "checking", starting_balance: 600,
@@ -419,7 +419,9 @@ describe("Plaid Sandbox through the deployed functions", () => {
       return JSON.stringify(counts) === JSON.stringify([4, 6]) ? got : null;
     }, 150_000);
     const four = rows[0].raw_payload.stream as Stream, raised = rows[1].raw_payload.stream as Stream;
-    expect([Number(rows[0].average_amount), four.frequency, four.ambiguity, rows[0].review_reasons]).toEqual([75, "biweekly", [], ["awaiting_family_statement"]]);
+    // Under 6 deposits, biweekly against semi-monthly is a documented limit: proposed by fit, always flagged.
+    expect([Number(rows[0].average_amount), four.frequency, four.ambiguity, rows[0].review_reasons])
+      .toEqual([75, "biweekly", ["frequency_ambiguous"], ["awaiting_family_statement", "schedule_ambiguous"]]);
     expect(raised.ambiguity).toContain("amount_changed");
     expect(rows[1].review_reasons).toContain("schedule_ambiguous");
   });

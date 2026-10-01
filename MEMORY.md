@@ -362,3 +362,24 @@ Builder runs:
 
 Next action: the seventh vetting.
 
+## PHASE 2 SEVENTH VETTING AND REWORK 7, 2026-10-02
+
+Seventh vetting (interrupted once by a usage limit and once by a network outage, resumed): NOT COMPLETE, 11 PASS and 1 FAIL, recorded in PHASE_2_REWORK_7.md.
+- Item 5: short biweekly and semi-monthly series. 3-deposit semi-monthly was never recognized; a business-day shift misread 4-deposit semi-monthly as biweekly (a v4.1 regression); an overdue 4-deposit biweekly read as semi-monthly.
+- The sixth vetting's fixes held: no qualifying sender was dropped in 20,909 random cases.
+
+Rework 7:
+- Rule v4.2 (AS BUILT 26): semi-monthly from 3 dates; under 6 deposits, a biweekly or semi-monthly reading is always flagged frequency_ambiguous (a documented limit in the bar).
+- Bar limits also gained N28, N29, and N30's wording.
+
+Builder runs:
+- unit: 161;
+- integration: 23;
+- isolation: 29, with the report at 340 of 340;
+- Playwright: 9;
+- dev leftovers: 0.
+
+The vetter again saw port 3000's listener change pid without touching it (the user's other project restarting).
+
+Next action: the eighth vetting.
+

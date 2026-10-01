@@ -284,7 +284,7 @@ describe("clean or flagged (ITEM 5 ACCEPTANCE BAR)", () => {
     expect(s.deposits).toHaveLength(25);
   });
 
-  it("PHASE_2_REWORK_6.md: a clean 4-deposit biweekly sender is biweekly and unflagged at every as-of date in 2026", async () => {
+  it("PHASE_2_REWORK_6.md / _7.md: a 4-deposit biweekly sender is proposed as biweekly and flagged frequency_ambiguous at every as-of date in 2026", async () => {
     // Exception, a true tie: when the 4 dates span February, 14 day gaps fall on the same days of the month (Feb 1,
     // Feb 15, Mar 1, Mar 15), so both readings fit exactly. That is flagged frequency_ambiguous, never misread silently.
     const wrong: string[] = [];
@@ -298,15 +298,37 @@ describe("clean or flagged (ITEM 5 ACCEPTANCE BAR)", () => {
       const plain = dates.map((d) => Number(d.slice(8))), round = dates.map(circ);
       const trueTie = (plain[0] === plain[2] && plain[1] === plain[3]) || (round[0] === round[2] && round[1] === round[3]);
       if (trueTie && s?.ambiguity.includes("frequency_ambiguous")) { ties++; continue; }
-      if (!s || s.frequency !== "biweekly" || s.ambiguity.length) wrong.push(`${asOf}: ${s?.frequency} ${s?.ambiguity}`);
+      // Under 6 deposits the two cannot be told apart reliably, so the proposal is always flagged (SHORT_SERIES).
+      if (!s || s.frequency !== "biweekly" || JSON.stringify(s.ambiguity) !== JSON.stringify(["frequency_ambiguous"])) wrong.push(`${asOf}: ${s?.frequency} ${s?.ambiguity}`);
     }
     expect(wrong).toEqual([]);
     expect(ties).toBeLessThanOrEqual(31); // only the February-spanning windows
   });
 
-  it("a clean 4-deposit semi-monthly sender (1st and 16th) is semi-monthly and unflagged", async () => {
+  it("a 4-deposit semi-monthly sender (1st and 16th) is proposed as semi-monthly and flagged", async () => {
     const [s] = await detectRecurringTransfers(["2026-08-01", "2026-08-16", "2026-09-01", "2026-09-16"].map((d) => plaidVenmo(d, 90, "Four Semi")), AS_OF);
-    expect(s).toMatchObject({ frequency: "semi_monthly", occurrence_count: 4, ambiguity: [] });
+    expect(s).toMatchObject({ frequency: "semi_monthly", occurrence_count: 4, ambiguity: ["frequency_ambiguous"] });
+  });
+
+  it("PHASE_2_REWORK_7.md F1: a 3-deposit semi-monthly sender is proposed as semi-monthly and flagged", async () => {
+    const [s] = await detectRecurringTransfers(["2026-08-16", "2026-09-01", "2026-09-16"].map((d) => plaidVenmo(d, 90, "Three Semi")), AS_OF);
+    expect(s).toMatchObject({ frequency: "semi_monthly", occurrence_count: 3, ambiguity: ["frequency_ambiguous"] });
+  });
+
+  it("PHASE_2_REWORK_7.md F4, F5: a business-day shift and an overdue biweekly payment are flagged, never clean", async () => {
+    // F4: 1st and 15th, with the 15th of August (a Saturday) paid on Friday the 14th.
+    const [f4] = await detectRecurringTransfers(["2026-08-01", "2026-08-14", "2026-09-01", "2026-09-15"].map((d) => plaidVenmo(d, 110, "Business Day")), AS_OF);
+    expect(f4.ambiguity.length).toBeGreaterThan(0);
+    // F5: biweekly, 4 deposits, the next one 8 days overdue.
+    const [f5] = await detectRecurringTransfers([64, 50, 36, 22].map((d) => plaidVenmo(ago(d), 70, "Overdue Biweekly")), AS_OF);
+    expect(f5.ambiguity.length).toBeGreaterThan(0);
+  });
+
+  it("6 or more deposits on a clean biweekly or semi-monthly schedule are exact and unflagged", async () => {
+    const bi = await detectRecurringTransfers([73, 59, 45, 31, 17, 3].map((d) => plaidVenmo(ago(d), 75, "Six Biweekly")), AS_OF);
+    expect(bi[0]).toMatchObject({ frequency: "biweekly", occurrence_count: 6, ambiguity: [] });
+    const semi = await detectRecurringTransfers(["2026-07-01", "2026-07-16", "2026-08-01", "2026-08-16", "2026-09-01", "2026-09-16"].map((d) => plaidVenmo(d, 90, "Six Semi")), AS_OF);
+    expect(semi[0]).toMatchObject({ frequency: "semi_monthly", occurrence_count: 6, ambiguity: [] });
   });
 
   it("PHASE_2_REWORK_6.md: senders whose amount changed are surfaced and flagged amount_changed, never dropped", async () => {

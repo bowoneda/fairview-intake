@@ -63,11 +63,13 @@ export interface DetectedStream {
 }
 
 /** Stored with every stream so an auditor can tell which rule produced it (PHASE-2-SPEC.md AS BUILT 22, N13). */
-export const RULE_VERSION = "PHASE-2-SPEC recurring transfer rule v4.1 (AS BUILT 25)";
+export const RULE_VERSION = "PHASE-2-SPEC recurring transfer rule v4.2 (AS BUILT 26)";
 export const LOOKBACK_DAYS = 180;
 export const MIN_OCCURRENCES = 3;
 export const AMOUNT_TOLERANCE = 0.5;
 export const SENDER_WORDS = 2;
+/** Fewer deposits than this, read as biweekly or semi-monthly, are always flagged frequency_ambiguous. */
+export const SHORT_SERIES = 6;
 /** A regular run must include more than this share of the sender's in-band deposits (N8). */
 export const RUN_SHARE = 0.5;
 /** An irregular sender is surfaced only if it sent money this recently (days before the as of date). */
@@ -128,14 +130,15 @@ function daysInMonth(d: string): number {
 }
 
 function semiMonthlyDays(days: number[]): boolean {
-  if (days.length < 4) return false;
+  // From 3 dates (PHASE_2_REWORK_7.md): two on one day of the month and one on the other is a semi-monthly shape.
+  if (days.length < 3) return false;
   const dom = [...days].sort((a, b) => a - b);
   let split = 1, widest = -1;
   for (let i = 1; i < dom.length; i++) {
     if (dom[i] - dom[i - 1] > widest) { widest = dom[i] - dom[i - 1]; split = i; }
   }
   const lower = dom.slice(0, split), upper = dom.slice(split);
-  const tight = (xs: number[]) => xs.length >= 2 && xs[xs.length - 1] - xs[0] <= 3;
+  const tight = (xs: number[]) => xs.length >= (days.length === 3 ? 1 : 2) && xs[xs.length - 1] - xs[0] <= 3;
   const mean = (xs: number[]) => xs.reduce((s, x) => s + x, 0) / xs.length;
   const apart = mean(upper) - mean(lower);
   return tight(lower) && tight(upper) && Math.abs(lower.length - upper.length) <= 1 && apart >= 10 && apart <= 20;
@@ -255,10 +258,15 @@ function bestRegularRun(txns: Txn[], typical: number, asOf: string): Regular | n
   // fixed days of the month are semi-monthly. Only a true tie is left to the reviewer (frequency_ambiguous).
   const rival = valid.find((v) => v !== best && v.run.length === best!.run.length && v.missed === best!.missed &&
     ((best!.frequency === "semi_monthly" && v.frequency === "biweekly") || (best!.frequency === "biweekly" && v.frequency === "semi_monthly")));
-  if (!rival) return { ...best, tie: false };
+  // Under SHORT_SERIES deposits, biweekly and semi-monthly cannot be told apart reliably (a payment moved to the
+  // previous business day, or one overdue payment, is enough to tip it): the better fit is proposed and always
+  // flagged frequency_ambiguous (PHASE-2-SPEC.md ACCEPTANCE BAR, documented limit; PHASE_2_REWORK_7.md).
+  const short = (r: { frequency: Frequency; run: Txn[] }) => (r.frequency === "semi_monthly" || r.frequency === "biweekly") && r.run.length < SHORT_SERIES;
+  if (!rival) return { ...best, tie: short(best) };
   const semi = best.frequency === "semi_monthly" ? best : rival, bi = best.frequency === "biweekly" ? best : rival;
   const sd = semiMonthlyDeviation(semi.run.map((t) => t.date)) ?? Infinity, bd = biweeklyDeviation(bi.run.map((t) => t.date));
-  return sd === bd ? { ...semi, tie: true } : sd < bd ? { ...semi, tie: false } : { ...bi, tie: false };
+  const pick = sd <= bd ? semi : bi;
+  return { ...pick, tie: sd === bd || short(pick) };
 }
 
 /**
