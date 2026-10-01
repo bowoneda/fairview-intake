@@ -244,6 +244,23 @@ Per PROCESS-RULES.md Phase 2, obtained independently:
 - It confirms that no raw Textract response, SSN, or full account number is stored anywhere, by querying.
 - It runs the genericization check from RULES.md.
 
+## ITEM 5 ACCEPTANCE BAR (decided by the user, 2026-10-01)
+
+Five vettings each found a narrower input that the recurring transfer detector read imperfectly. Each fix held, and each round found another shape. The user decided to close item 5 by making ambiguity explicit rather than patching each shape: "flag ambiguity", with the remaining edge cases agreed as documented limits. This bar is what the PROCESS-RULES.md Phase 2 item 5 checklist line is verified against from the sixth vetting on.
+
+1. Clean inputs give exact figures, with no flag. A clean input is one sender on one of the four frequencies (weekly, biweekly, semi-monthly, monthly), with every deposit in the 180-day lookback on schedule, no missed payment, and no other deposit from that sender. The stored frequency, count, average, first and last dates must be exact. The record carries only the status reason, and the stream's ambiguity list is empty.
+2. Every other qualifying sender is surfaced and flagged, never silently dropped. A qualifying sender has at least 3 deposits in the amount band, and either a regular run that is still active or a deposit in the last 45 days. If software made any judgment, the record carries the review reason schedule_ambiguous or irregular_pattern, and the stored stream lists the reason (deposits_left_out, missed_payment, irregular_pattern). The judgments are: leaving out any deposit from that sender, bridging a missed payment, or finding no regular schedule. The stream also lists every deposit from the sender (date, amount, and whether it is in the stream), so the reviewer can check or correct the proposal.
+3. A flagged stream's figures are a proposal, not a finding. In a flagged case they may be off (the detector's best reading of an ambiguous series); that is a documented limit, not a gate failure, as long as point 2 holds. Phase 3 must not annualize a flagged stream's figures until a reviewer has confirmed or corrected them.
+4. Documented limits, agreed by the user. Each is surfaced and flagged, or is a stated scope boundary:
+   - a missed payment with a one-off beside the gap (PHASE_2_REWORK_5.md X15, X16, X3b, X2b, X2): flagged, and the proposed figures may count the one-off;
+   - a sender whose latest payment is missing (X4, X5): flagged, and may be proposed at a coarser frequency or as irregular;
+   - two or more missed payments (N20): flagged; missed_payments records at most 1;
+   - a schedule switch (F, N19): flagged, and may record a miss that did not happen;
+   - cadences outside the four frequencies (every 28 or 60 days, N18): read as the nearest frequency or as irregular, and flagged when anything is left out. These are for the Regulatory Compliance Verification Skill before Phase 3 annualizes anything;
+   - a sender who stopped (no active run, and no deposit in 45 days) is not surfaced: not anticipated income;
+   - merged senders who share their first two words, and descriptions without "from" (AS BUILT 17);
+   - replaying a genuine signed webhook cannot be tested from outside (first vetting, observation 5).
+
 ## AS BUILT: DEVIATIONS FROM THIS SPECIFICATION
 
 Recorded during the build, each with its reason. Where these conflict with the sections above, these win.
@@ -289,4 +306,12 @@ Recorded during the build, each with its reason. Where these conflict with the s
     - N14: test teardowns delete users through deleteUserOrThrow, which retries and fails the run if a user is left behind.
     - N15: migration 20261001001600 gives a second confirm on a decided source its own message ("this source has already been decided"), still 22023.
     - The payroll retry test now checks the event's outcome, because the 5 minute pg_cron job can claim the event before the test's own call.
+24. Recurring detection rule v4 (stored label "rule v4 (AS BUILT 24)"), for the ITEM 5 ACCEPTANCE BAR above. The run selection is rule v3's. New in v4:
+    - Every stream records ambiguity (deposits_left_out, missed_payment, irregular_pattern) and deposits (every deposit from the sender in the lookback, with in_stream).
+    - The record's review reasons add schedule_ambiguous for a flagged regular stream while it is undecided. Migration 1500's trigger keeps these non-status reasons when the status moves to awaiting_review, and clears all reasons once a reviewer decides.
+    - Semi-monthly days of the month are circular (N17): a "1st" paid on the previous month's last day stays in its slot.
+    - A stream that no longer qualifies on a later read is deleted with its record, but only while it is still awaiting the family's statement and the read has transactions (N21). A source the family stated or a reviewer decided is never removed by software.
+    - document-ingest claims a document with one conditional update, so of two concurrent calls only one reads it and the other gets 409 (N22).
+    - The bank connection's server steps time out at 120 s with a plain message, like the uploader (N16).
+    Unit tests cover clean versus flagged, X15, X4, and N17. The integration suite drives one clean sender plus X15, X4, and X2b through plaid-sandbox.
 

@@ -136,7 +136,7 @@ export async function ingestItem(svc: SupabaseClient, c: Connection, asOf = new 
     // A re-read never resets a stated or confirmed transfer back to "awaiting the family's statement".
     // Once a reviewer has decided, nothing is left to review. Migration 1500 keeps these in step when the status
     // changes between reads; this is the same rule, applied when the figures are refreshed.
-    const reasons = streamReviewReasons(source.status, s.pattern);
+    const reasons = streamReviewReasons(source.status, s);
     const record = normalize({
       ingestion_method: "plaid", source_type: "recurring_transfer", employer_name: s.app, pay_frequency: s.frequency,
       pay_rate: null, expected_annual_hours: null, gross_pay: s.average_amount, pay_period_start: s.first_seen,
@@ -153,6 +153,22 @@ export async function ingestItem(svc: SupabaseClient, c: Connection, asOf = new 
       provider_record_ref: `stream:${s.stream_ref}`,
     }, { onConflict: "provider_connection_id,provider_record_ref" });
     if (recErr) throw new Error("income_record_upsert");
+  }
+
+  // A stream that no longer qualifies on this read (N21: Plaid delivers history in stages, so an early read can
+  // see a pattern the full history does not) is removed, but only while nobody has acted on it: a source the
+  // family has stated or a reviewer has decided is kept as is. Skipped when this read has no transactions.
+  if (txns.length > 0) {
+    const current = streams.map((s) => s.stream_ref);
+    const { data: stale } = await svc.from("income_sources").select("id, provider_stream_ref")
+      .eq("provider_connection_id", c.id).eq("source_type", "recurring_transfer").eq("status", "awaiting_family_statement");
+    const gone = (stale ?? []).filter((x) => !current.includes(x.provider_stream_ref)).map((x) => x.id);
+    if (gone.length) {
+      const { error: delRecErr } = await svc.from("income_records").delete().in("income_source_id", gone);
+      if (delRecErr) throw new Error("stale_record_delete");
+      const { error: delSrcErr } = await svc.from("income_sources").delete().in("id", gone).eq("status", "awaiting_family_statement");
+      if (delSrcErr) throw new Error("stale_source_delete");
+    }
   }
 
   const status: IngestSummary["status"] = txns.length === 0 && updateStatus !== "HISTORICAL_UPDATE_COMPLETE" ? "awaiting_data" : "ingested";

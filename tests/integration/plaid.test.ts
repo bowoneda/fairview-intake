@@ -362,7 +362,41 @@ describe("Plaid Sandbox through the deployed functions", () => {
     type Stream = { excluded_transaction_ids: string[]; missed_payments: number };
     expect(rows.map((x: { raw_payload: { stream: Stream } }) => [x.raw_payload.stream.excluded_transaction_ids.length, x.raw_payload.stream.missed_payments]))
       .toEqual([[0, 1], [0, 1], [1, 0], [1, 0]]);
-    expect(rows[0].raw_payload.rule).toMatch(/rule v3/); // N13: the stored label names the rule that ran
+    expect(rows[0].raw_payload.rule).toMatch(/rule v4/); // N13: the stored label names the rule that ran
+  });
+
+  it("ITEM 5 ACCEPTANCE BAR: a clean sender is exact and unflagged; ambiguous senders are surfaced, flagged, and list every deposit", async () => {
+    // PHASE-2-SPEC.md, ITEM 5 ACCEPTANCE BAR (the user's decision, 2026-10-01), with PHASE_2_REWORK_5.md's shapes.
+    const t = (d: number, amount: number, text: string) => txn(daysAgo(d), -amount, text);
+    const x2b = Array.from({ length: 25 }, (_, k) => 2 + 7 * k).filter((d) => d !== 86);
+    const scenario = { override_accounts: [{ type: "depository", subtype: "checking", starting_balance: 800,
+      transactions: [
+        ...[150, 120, 90, 60, 30, 1].map((d) => t(d, 100, "Venmo from Clean Payer")), // clean
+        ...[160, 100, 70, 40, 10].map((d) => t(d, 400, "Zelle from Elle Varga")), t(157, 260, "Zelle from Elle Varga"), // X15: 130 missed, one-off beside
+        ...Array.from({ length: 24 }, (_, k) => t(11 + 7 * k, 50, "Zelle from Eve Stone")), // X4: the latest week never came
+        ...x2b.map((d) => t(d, 35, "Venmo from Bree Tolan")), t(91, 22, "Venmo from Bree Tolan"), // X2b: 86 missed, one-off beside
+      ] }] };
+    const u = await makeApplicant("bar5");
+    const r = await call("plaid-sandbox", u.token, { action: "link", household_member_id: u.memberId, custom_user: scenario });
+    expect(r.status, JSON.stringify(r.body)).toBe(200);
+    type Stream = { deposits: { transaction_id: string }[]; ambiguity: string[] };
+    const rows = await waitFor("four sources with their full history", async () => {
+      const got = (await db.query(`select s.average_amount, s.frequency, r.review_reasons, r.raw_payload
+        from public.income_sources s join public.income_records r on r.income_source_id = s.id
+        where s.provider_connection_id = $1 and s.source_type = 'recurring_transfer' order by s.average_amount`, [r.body.connection_id])).rows;
+      const counts = got.map((x: { raw_payload: { stream: Stream } }) => x.raw_payload.stream.deposits.length);
+      return JSON.stringify(counts) === JSON.stringify([25, 24, 6, 6]) ? got : null;
+    }, 150_000);
+    // Order by average: X2b (about 35), X4 (50), the clean sender (100), X15 (about 400).
+    const clean = rows[2];
+    expect([Number(clean.average_amount), clean.frequency, clean.review_reasons, clean.raw_payload.stream.ambiguity])
+      .toEqual([100, "monthly", ["awaiting_family_statement"], []]);
+    for (const i of [0, 1, 3]) {
+      const s = rows[i].raw_payload.stream as Stream;
+      expect(s.ambiguity.length, `row ${i}`).toBeGreaterThan(0);
+      expect(rows[i].review_reasons.some((x: string) => x === "schedule_ambiguous" || x === "irregular_pattern"), `row ${i}`).toBe(true);
+    }
+    expect(rows[0].raw_payload.rule).toMatch(/rule v4/);
   });
 
   it("payroll: a Link token for Plaid Payroll Income", async () => {

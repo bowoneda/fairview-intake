@@ -52,10 +52,18 @@ export interface DetectedStream {
   transaction_ids: string[];
   /** Deposits from the same sender kept out of the stream: amount far from typical, or off the regular schedule. */
   excluded_transaction_ids: string[];
+  /**
+   * Clean or flagged (PHASE-2-SPEC.md, ITEM 5 ACCEPTANCE BAR). A stream is clean only when every deposit from the
+   * sender in the lookback is in it, on one of the four frequencies, with no missed payment. Anything else needed a
+   * judgment by software, so its figures are a proposal for the reviewer, never a finding: the reasons say which.
+   */
+  ambiguity: ("deposits_left_out" | "missed_payment" | "irregular_pattern")[];
+  /** Every deposit from the sender in the lookback, so the reviewer can check or correct the proposal. */
+  deposits: { transaction_id: string; date: string; amount: number; in_stream: boolean }[];
 }
 
 /** Stored with every stream so an auditor can tell which rule produced it (PHASE-2-SPEC.md AS BUILT 22, N13). */
-export const RULE_VERSION = "PHASE-2-SPEC recurring transfer rule v3 (AS BUILT 22)";
+export const RULE_VERSION = "PHASE-2-SPEC recurring transfer rule v4 (AS BUILT 24)";
 export const LOOKBACK_DAYS = 180;
 export const MIN_OCCURRENCES = 3;
 export const AMOUNT_TOLERANCE = 0.5;
@@ -109,8 +117,19 @@ const PREFERENCE: Frequency[] = ["semi_monthly", "weekly", "biweekly", "monthly"
  * same size, and 10 to 20 days apart. Weekly and biweekly deposits drift across the month and fail this.
  */
 function isSemiMonthly(dates: string[]): boolean {
-  if (dates.length < 4) return false;
-  const dom = dates.map((d) => Number(d.slice(8, 10))).sort((a, b) => a - b);
+  // The day of the month is circular: a "1st" paid on the previous month's last day is the same slot (N17).
+  // Try the plain days, then late days counted back from the next month's 1st (the 31st becomes day 0).
+  return semiMonthlyDays(dates.map((d) => Number(d.slice(8, 10))))
+    || semiMonthlyDays(dates.map((d) => { const dom = Number(d.slice(8, 10)); return dom > 24 ? dom - daysInMonth(d) : dom; }));
+}
+
+function daysInMonth(d: string): number {
+  return new Date(Date.UTC(Number(d.slice(0, 4)), Number(d.slice(5, 7)), 0)).getUTCDate();
+}
+
+function semiMonthlyDays(days: number[]): boolean {
+  if (days.length < 4) return false;
+  const dom = [...days].sort((a, b) => a - b);
   let split = 1, widest = -1;
   for (let i = 1; i < dom.length; i++) {
     if (dom[i] - dom[i - 1] > widest) { widest = dom[i] - dom[i - 1]; split = i; }
@@ -215,9 +234,10 @@ function bestRegularRun(txns: Txn[], typical: number, asOf: string): { frequency
  * irregular_pattern for a sender with no regular schedule; once a reviewer has decided, none. Migration 1500's
  * trigger applies the same rule in the database when the status changes between reads.
  */
-export function streamReviewReasons(status: string, pattern: DetectedStream["pattern"]): string[] {
+export function streamReviewReasons(status: string, stream: Pick<DetectedStream, "pattern" | "ambiguity">): string[] {
   if (status !== "awaiting_family_statement" && status !== "awaiting_review") return [];
-  return pattern === "irregular" ? [status, "irregular_pattern"] : [status];
+  return [status, ...(stream.pattern === "irregular" ? ["irregular_pattern"] : []),
+          ...(stream.ambiguity.some((a) => a !== "irregular_pattern") ? ["schedule_ambiguous"] : [])];
 }
 
 async function sha256Hex(s: string): Promise<string> {
@@ -276,6 +296,12 @@ export async function detectRecurringTransfers(transactions: Txn[], asOf: string
       last_seen: chosen[chosen.length - 1].date,
       transaction_ids: chosen.map((t) => t.transaction_id),
       excluded_transaction_ids: all.filter((t) => !inStream.has(t.transaction_id)).map((t) => t.transaction_id),
+      ambiguity: [
+        ...(regular ? [] : ["irregular_pattern" as const]),
+        ...(all.some((t) => !inStream.has(t.transaction_id)) ? ["deposits_left_out" as const] : []),
+        ...(regular && regular.missed > 0 ? ["missed_payment" as const] : []),
+      ],
+      deposits: all.map((t) => ({ transaction_id: t.transaction_id, date: t.date, amount: Math.abs(t.amount), in_stream: inStream.has(t.transaction_id) })),
     });
   }
   return streams.sort((a, b) => a.stream_ref.localeCompare(b.stream_ref));

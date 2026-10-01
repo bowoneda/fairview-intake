@@ -73,7 +73,12 @@ Deno.serve(async (req) => {
       svc.from("applicant_documents").update({ ...fields, updated_at: new Date().toISOString() })
         .eq("id", doc.id).eq("tenant_id", caller.tenantId);
 
-    await update({ status: "processing", failure_reason: null });
+    // The claim is one conditional update (N22): of two concurrent calls, only the one that moves the row out of
+    // uploaded or failed proceeds; the other gets the same 409 as a later call.
+    const { data: claimed } = await svc.from("applicant_documents")
+      .update({ status: "processing", failure_reason: null, updated_at: new Date().toISOString() })
+      .eq("id", doc.id).eq("tenant_id", caller.tenantId).in("status", ["uploaded", "failed"]).select("id");
+    if (!claimed || claimed.length !== 1) throw new HttpError(409, "already_processed", "This document has already been read.");
 
     // Download with the caller's own session: storage RLS confirms the object is theirs too.
     const { data: blob, error: dlErr } = await caller.asCaller.storage.from("applicant-documents").download(doc.storage_path);

@@ -311,3 +311,31 @@ Builder runs, not vetting evidence:
 
 Next action: re-launch the Master Vetting sub-agent for Phase 2 (a fifth vetting).
 
+
+## PHASE 2 FIFTH VETTING, AND THE USER'S DECISION ON ITEM 5, 2026-10-01
+
+Fifth vetting: NOT COMPLETE, 11 PASS and 1 FAIL, recorded in PHASE_2_REWORK_5.md (untracked; commit it as the record).
+- Item 5: a missed payment with a one-off beside the gap (X15, X16, X3b, X2b, X2), and a weekly sender missing only the latest week (X4).
+- New observations N16 to N22: bank-connect has no stall timeout; semi-monthly is read as biweekly across a month end; 28 and 60 day cadences; F records a false miss; two misses are recorded as 1; stale streams are never removed; document-ingest's claim is not atomic.
+
+Decision by the user (2026-10-01): FLAG AMBIGUITY, chosen over more patching or accepting the cases as limits. The plan:
+1. Detector fits each sender's deposits to a schedule. A stream is "clean" only if every deposit from the sender is in the run and no payment is missed. Anything else (a left-out deposit, a bridged miss, an irregular pattern, or a frequency that is ambiguous, such as semi-monthly versus biweekly) gets the review reason schedule_ambiguous, and the payload lists all of the sender's deposits (date, amount, in or out of the stream) for the reviewer.
+2. Write the item 5 acceptance bar into PHASE-2-SPEC.md as the user's decision: clean inputs give exact figures; every other qualifying sender is surfaced and flagged, never silently dropped; Phase 3 uses reviewer-confirmed figures for flagged streams.
+3. Fix N16 to N22 where cheap: the bank-connect timeout, circular day of month for semi-monthly, N19 and N20 recording, removing stale streams, and an atomic document claim.
+4. Then a sixth vetting, with the bar named in its prompt.
+Nothing of this is built yet. HEAD is 4ca14f7; dev is clean (vetter verified baseline, 0 differences).
+Update, same day: the user agreed "flag ambiguity" with the remaining edge cases as documented limits. Built:
+- rule v4 (AS BUILT 24) and the ITEM 5 ACCEPTANCE BAR section in PHASE-2-SPEC.md, with the limits listed;
+- N16, N17, N21 and N22 fixed.
+
+Builder runs:
+- unit: 155;
+- integration: 22;
+- isolation: 29, with the report at 340 of 340;
+- Playwright: 9 of 9 twice;
+- dev leftovers: 0.
+
+For Phase 3: never annualize a flagged stream's figures before a reviewer confirms or corrects them.
+
+Next action: the sixth vetting, held to the ITEM 5 ACCEPTANCE BAR.
+

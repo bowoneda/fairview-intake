@@ -237,11 +237,57 @@ describe("detectRecurringTransfers with varying amounts or a missed payment (PHA
 });
 
 describe("streamReviewReasons", () => {
-  it("follows the source status, adding irregular_pattern while undecided", () => {
-    expect(streamReviewReasons("awaiting_family_statement", "regular")).toEqual(["awaiting_family_statement"]);
-    expect(streamReviewReasons("awaiting_review", "irregular")).toEqual(["awaiting_review", "irregular_pattern"]);
-    expect(streamReviewReasons("confirmed_income", "irregular")).toEqual([]);
-    expect(streamReviewReasons("dismissed", "regular")).toEqual([]);
+  const clean = { pattern: "regular" as const, ambiguity: [] };
+  const irregular = { pattern: "irregular" as const, ambiguity: ["irregular_pattern" as const] };
+  const flagged = { pattern: "regular" as const, ambiguity: ["deposits_left_out" as const, "missed_payment" as const] };
+  it("follows the source status, adding the pattern reasons while undecided", () => {
+    expect(streamReviewReasons("awaiting_family_statement", clean)).toEqual(["awaiting_family_statement"]);
+    expect(streamReviewReasons("awaiting_review", irregular)).toEqual(["awaiting_review", "irregular_pattern"]);
+    expect(streamReviewReasons("awaiting_family_statement", flagged)).toEqual(["awaiting_family_statement", "schedule_ambiguous"]);
+    expect(streamReviewReasons("confirmed_income", irregular)).toEqual([]);
+    expect(streamReviewReasons("dismissed", flagged)).toEqual([]);
+  });
+});
+
+// PHASE-2-SPEC.md, ITEM 5 ACCEPTANCE BAR (the user's decision, 2026-10-01): clean inputs give exact figures and no
+// flag; anything that needed a judgment is surfaced, flagged, and carries every deposit for the reviewer.
+describe("clean or flagged (ITEM 5 ACCEPTANCE BAR)", () => {
+  it("a clean monthly sender is not flagged, and lists all its deposits as in the stream", async () => {
+    const [s] = await detectRecurringTransfers(monthly("Venmo from Clean Sender"), AS_OF);
+    expect(s.ambiguity).toEqual([]);
+    expect(s.deposits).toHaveLength(6);
+    expect(s.deposits.every((d) => d.in_stream)).toBe(true);
+  });
+
+  it("a left-out deposit, a missed payment, and an irregular sender are each flagged with the reason", async () => {
+    const extra = await detectRecurringTransfers([...monthly("Venmo from Extra Sender"), inflow("2026-06-20", 200, "Venmo from Extra Sender")], AS_OF);
+    expect(extra[0].ambiguity).toEqual(["deposits_left_out"]);
+    const missed = await detectRecurringTransfers(monthly("Venmo from Missed Sender").filter((_, i) => i !== 3), AS_OF);
+    expect(missed[0]).toMatchObject({ frequency: "monthly", ambiguity: ["missed_payment"] });
+    const irr = await detectRecurringTransfers([140, 131, 97, 60, 58, 20].map((d) => plaidVenmo(ago(d), 60, "Irregular Sender")), AS_OF);
+    expect(irr[0].ambiguity).toEqual(["irregular_pattern"]);
+  });
+
+  it("PHASE_2_REWORK_5.md X15: a missed payment with a one-off beside it is surfaced and flagged, with every deposit listed", async () => {
+    const z = (d: string, a: number): Txn => ({ ...plaidVenmo(d, a, "Elle Varga"), name: "Zelle", original_description: "Zelle from Elle Varga" });
+    const txns = [...["2026-04-14", "2026-06-13", "2026-07-13", "2026-08-12", "2026-09-11"].map((d) => z(d, 400)), z("2026-04-17", 260)];
+    const [s, ...rest] = await detectRecurringTransfers(txns, AS_OF);
+    expect(rest).toHaveLength(0);
+    expect(s.ambiguity.length).toBeGreaterThan(0);
+    expect(s.deposits.map((d) => d.transaction_id).sort()).toEqual(txns.map((t) => t.transaction_id).sort());
+  });
+
+  it("PHASE_2_REWORK_5.md X4: a weekly sender whose latest week is missing is surfaced and flagged, never clean", async () => {
+    const txns = Array.from({ length: 25 }, (_, k) => plaidVenmo(new Date(Date.parse("2026-04-05") + 7 * k * 86_400_000).toISOString().slice(0, 10), 50, "Eve Stone"));
+    const [s] = await detectRecurringTransfers(txns, "2026-10-01");
+    expect(s.ambiguity.length).toBeGreaterThan(0);
+    expect(s.deposits).toHaveLength(25);
+  });
+
+  it("N17: a semi-monthly 1st paid on the previous month's last day stays semi-monthly and clean", async () => {
+    const dates = ["2026-04-16", "2026-05-01", "2026-05-16", "2026-05-31", "2026-06-16", "2026-07-01", "2026-07-16", "2026-08-01", "2026-08-16", "2026-08-31", "2026-09-16"];
+    const [s] = await detectRecurringTransfers(dates.map((d) => plaidVenmo(d, 180, "Nia Ford")), AS_OF);
+    expect(s).toMatchObject({ frequency: "semi_monthly", occurrence_count: 11, ambiguity: [] });
   });
 });
 

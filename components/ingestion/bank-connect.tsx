@@ -38,6 +38,11 @@ const COPY = {
     done: "Connected. Your pay stubs are being read." },
 } as const;
 
+/** A server step that neither answers nor fails within 120 s is treated as failed, so the button is never stuck (N16). */
+function stallGuard<T>(p: Promise<T>): Promise<T> {
+  return Promise.race([p, new Promise<T>((_, reject) => setTimeout(() => reject(new Error("stalled")), 120_000))]);
+}
+
 export function BankConnect({ tenant, members, product = "transactions" }: {
   tenant: string; members: { id: string; name: string }[]; product?: "transactions" | "payroll_income";
 }) {
@@ -54,7 +59,7 @@ export function BankConnect({ tenant, members, product = "transactions" }: {
       setBusy(false);
       return setMessage({ tone: "error", text: "The secure connection window did not load. Check your connection, then refresh the page and try again." });
     }
-    const start = await startBankConnection(tenant, memberId, product)
+    const start = await stallGuard(startBankConnection(tenant, memberId, product))
       .catch(() => ({ ok: false as const, message: "We could not start the bank connection. Check your connection, then try again." }));
     if (!start.ok) {
       setBusy(false);
@@ -64,7 +69,7 @@ export function BankConnect({ tenant, members, product = "transactions" }: {
       token: start.linkToken,
       onSuccess: async (publicToken) => {
         // A thrown request must not leave the button busy for good (PHASE_2_REWORK_4.md N12).
-        const done = await finishBankConnection(tenant, start.connectionId, publicToken)
+        const done = await stallGuard(finishBankConnection(tenant, start.connectionId, publicToken))
           .catch(() => ({ ok: false, message: "We could not finish connecting your account. Check your connection, then try again." }));
         setBusy(false);
         setMessage(done.ok ? { tone: "ok", text: copy.done } : { tone: "error", text: done.message ?? "Try again." });
