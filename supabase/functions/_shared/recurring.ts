@@ -57,13 +57,13 @@ export interface DetectedStream {
    * sender in the lookback is in it, on one of the four frequencies, with no missed payment. Anything else needed a
    * judgment by software, so its figures are a proposal for the reviewer, never a finding: the reasons say which.
    */
-  ambiguity: ("deposits_left_out" | "missed_payment" | "irregular_pattern")[];
+  ambiguity: ("deposits_left_out" | "missed_payment" | "irregular_pattern" | "frequency_ambiguous" | "amount_changed")[];
   /** Every deposit from the sender in the lookback, so the reviewer can check or correct the proposal. */
   deposits: { transaction_id: string; date: string; amount: number; in_stream: boolean }[];
 }
 
 /** Stored with every stream so an auditor can tell which rule produced it (PHASE-2-SPEC.md AS BUILT 22, N13). */
-export const RULE_VERSION = "PHASE-2-SPEC recurring transfer rule v4 (AS BUILT 24)";
+export const RULE_VERSION = "PHASE-2-SPEC recurring transfer rule v4.1 (AS BUILT 25)";
 export const LOOKBACK_DAYS = 180;
 export const MIN_OCCURRENCES = 3;
 export const AMOUNT_TOLERANCE = 0.5;
@@ -215,8 +215,29 @@ function bestRun(txns: Txn[], f: Frequency, typical: number, asOf: string): Run 
   return bestRunAt(txns, f, typical, asOf, median(gaps));
 }
 
-function bestRegularRun(txns: Txn[], typical: number, asOf: string): { frequency: Frequency; run: Txn[]; missed: number } | null {
-  let best: { frequency: Frequency; run: Txn[]; missed: number } | null = null;
+type Regular = { frequency: Frequency; run: Txn[]; missed: number; tie: boolean };
+
+/** How far a run's dates sit from a fixed pair of days in the month (circular, as in isSemiMonthly). */
+function semiMonthlyDeviation(dates: string[]): number | null {
+  const dev = (doms: number[]) => {
+    if (!semiMonthlyDays(doms)) return null;
+    const dom = [...doms].sort((a, b) => a - b);
+    let split = 1, widest = -1;
+    for (let i = 1; i < dom.length; i++) if (dom[i] - dom[i - 1] > widest) { widest = dom[i] - dom[i - 1]; split = i; }
+    return [dom.slice(0, split), dom.slice(split)].reduce((sum, c) => sum + c.reduce((s2, d) => s2 + Math.abs(d - median(c)), 0), 0);
+  };
+  const plain = dev(dates.map((d) => Number(d.slice(8, 10))));
+  const shifted = dev(dates.map((d) => { const dom = Number(d.slice(8, 10)); return dom > 24 ? dom - daysInMonth(d) : dom; }));
+  return plain === null ? shifted : shifted === null ? plain : Math.min(plain, shifted);
+}
+
+/** How far a run's gaps sit from exactly 14 days. */
+function biweeklyDeviation(dates: string[]): number {
+  return dates.slice(1).reduce((sum, d, i) => sum + Math.abs(days(dates[i], d) - 14), 0);
+}
+
+function bestRegularRun(txns: Txn[], typical: number, asOf: string): Regular | null {
+  const valid: { frequency: Frequency; run: Txn[]; missed: number }[] = [];
   for (const f of PREFERENCE) {
     const { txns: run, missed } = bestRun(txns, f, typical, asOf);
     if (run.length < MIN_OCCURRENCES) continue;
@@ -224,9 +245,20 @@ function bestRegularRun(txns: Txn[], typical: number, asOf: string): { frequency
     // many irregular ones are not a schedule (N8).
     if (run.length <= txns.length * RUN_SHARE) continue;
     if (f === "semi_monthly" && !isSemiMonthly(run.map((t) => t.date))) continue;
-    if (!best || run.length > best.run.length || (run.length === best.run.length && missed < best.missed)) best = { frequency: f, run, missed };
+    valid.push({ frequency: f, run, missed });
   }
-  return best;
+  let best: (typeof valid)[number] | null = null;
+  for (const v of valid) if (!best || v.run.length > best.run.length || (v.run.length === best.run.length && v.missed < best.missed)) best = v;
+  if (!best) return null;
+  // Semi-monthly and biweekly can both fit a short series (4 biweekly dates can pass the day of month test,
+  // PHASE_2_REWORK_6.md). When both fit equally well in length, the dates decide: exact 14 day gaps are biweekly,
+  // fixed days of the month are semi-monthly. Only a true tie is left to the reviewer (frequency_ambiguous).
+  const rival = valid.find((v) => v !== best && v.run.length === best!.run.length && v.missed === best!.missed &&
+    ((best!.frequency === "semi_monthly" && v.frequency === "biweekly") || (best!.frequency === "biweekly" && v.frequency === "semi_monthly")));
+  if (!rival) return { ...best, tie: false };
+  const semi = best.frequency === "semi_monthly" ? best : rival, bi = best.frequency === "biweekly" ? best : rival;
+  const sd = semiMonthlyDeviation(semi.run.map((t) => t.date)) ?? Infinity, bd = biweeklyDeviation(bi.run.map((t) => t.date));
+  return sd === bd ? { ...semi, tie: true } : sd < bd ? { ...semi, tie: false } : { ...bi, tie: false };
 }
 
 /**
@@ -267,20 +299,25 @@ export async function detectRecurringTransfers(transactions: Txn[], asOf: string
   const streams: DetectedStream[] = [];
   for (const [key, g] of groups) {
     const all = [...g.txns].sort((a, b) => a.date.localeCompare(b.date) || a.transaction_id.localeCompare(b.transaction_id));
+    if (all.length < MIN_OCCURRENCES) continue;
     const typical = median(all.map((t) => Math.abs(t.amount)));
     const inBand = (t: Txn) => Math.abs(Math.abs(t.amount) - typical) <= typical * AMOUNT_TOLERANCE;
     const candidates = all.filter(inBand);
-    if (candidates.length < MIN_OCCURRENCES) continue;
+    const recent = (xs: Txn[]) => xs.length > 0 && days(xs[xs.length - 1].date, asOf) <= IRREGULAR_RECENT_DAYS;
 
-    const regular = bestRegularRun(candidates, typical, asOf);
-    let chosen: Txn[];
-    if (regular) {
-      chosen = regular.run;
-    } else {
-      // No regular schedule. Surface it rather than drop it, if the sender is still sending.
-      if (days(candidates[candidates.length - 1].date, asOf) > IRREGULAR_RECENT_DAYS) continue;
-      chosen = candidates;
+    // First pass: the deposits near the sender's usual amount.
+    let regular = candidates.length >= MIN_OCCURRENCES ? bestRegularRun(candidates, typical, asOf) : null;
+    let chosen: Txn[] | null = regular ? regular.run : candidates.length >= MIN_OCCURRENCES && recent(candidates) ? candidates : null;
+    // Second pass, if the first found nothing: a sender whose amount changed (a raise, a cut, monthly to weekly)
+    // has its recent deposits outside the band of its older majority amount (PHASE_2_REWORK_6.md). It is still
+    // sending, so it is surfaced from all its deposits, and flagged: the amount changed, a judgment for the reviewer.
+    let amountChanged = false;
+    if (!chosen && recent(all)) {
+      amountChanged = true;
+      regular = bestRegularRun(all, typical, asOf);
+      chosen = regular ? regular.run : all;
     }
+    if (!chosen) continue; // stopped: no active schedule and nothing in the last 45 days
     const inStream = new Set(chosen.map((t) => t.transaction_id));
     const total = chosen.reduce((s, t) => s + Math.abs(t.amount), 0);
     streams.push({
@@ -300,6 +337,8 @@ export async function detectRecurringTransfers(transactions: Txn[], asOf: string
         ...(regular ? [] : ["irregular_pattern" as const]),
         ...(all.some((t) => !inStream.has(t.transaction_id)) ? ["deposits_left_out" as const] : []),
         ...(regular && regular.missed > 0 ? ["missed_payment" as const] : []),
+        ...(regular?.tie ? ["frequency_ambiguous" as const] : []),
+        ...(amountChanged ? ["amount_changed" as const] : []),
       ],
       deposits: all.map((t) => ({ transaction_id: t.transaction_id, date: t.date, amount: Math.abs(t.amount), in_stream: inStream.has(t.transaction_id) })),
     });

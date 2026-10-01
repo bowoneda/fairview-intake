@@ -339,3 +339,26 @@ For Phase 3: never annualize a flagged stream's figures before a reviewer confir
 
 Next action: the sixth vetting, held to the ITEM 5 ACCEPTANCE BAR.
 
+## PHASE 2 SIXTH VETTING AND REWORK 6, 2026-10-01
+
+Sixth vetting, judged against the user's ITEM 5 ACCEPTANCE BAR: NOT COMPLETE, 11 PASS and 1 FAIL, recorded in PHASE_2_REWORK_6.md.
+- A clean 4-deposit biweekly sender was stored as semi_monthly with no flag.
+- Senders whose amount changed were never surfaced.
+- Every earlier family was surfaced and flagged correctly. 12 clean senders were exact. Every deposit list was complete. N16, N21 and N22 were verified fixed.
+- The vetter also noted that port 3000's listener changed process during its run (it never touched it). At the end of this rework, something was listening on 3000 again (pid 24780).
+
+Rework 6:
+- Rule v4.1 (AS BUILT 25): a date-fit tie-break between semi-monthly and biweekly, with true ties flagged frequency_ambiguous.
+- An all-deposits second pass, flagged amount_changed, for senders whose amount changed.
+- The bar's "qualifying" wording widened to any deposit in the last 45 days.
+- New documented limits: true ties, N23, N24/N25, N26.
+
+Builder runs:
+- unit: 158 (including a 365-day sweep);
+- integration: 23;
+- isolation: 29, with the report at 340 of 340;
+- Playwright: 9;
+- dev leftovers: 0.
+
+Next action: the seventh vetting.
+

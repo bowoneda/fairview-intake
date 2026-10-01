@@ -284,6 +284,48 @@ describe("clean or flagged (ITEM 5 ACCEPTANCE BAR)", () => {
     expect(s.deposits).toHaveLength(25);
   });
 
+  it("PHASE_2_REWORK_6.md: a clean 4-deposit biweekly sender is biweekly and unflagged at every as-of date in 2026", async () => {
+    // Exception, a true tie: when the 4 dates span February, 14 day gaps fall on the same days of the month (Feb 1,
+    // Feb 15, Mar 1, Mar 15), so both readings fit exactly. That is flagged frequency_ambiguous, never misread silently.
+    const wrong: string[] = [];
+    let ties = 0;
+    for (let day = 0; day < 365; day++) {
+      const asOf = new Date(Date.UTC(2026, 0, 1) + day * 86_400_000).toISOString().slice(0, 10);
+      const dates = [45, 31, 17, 3].map((n) => new Date(Date.parse(asOf) - n * 86_400_000).toISOString().slice(0, 10));
+      const [s] = await detectRecurringTransfers(dates.map((d) => plaidVenmo(d, 75, "Four Deposits")), asOf);
+      // Days of the month, circular: a late day counts back from the next month's 1st (Jan 28 and Feb 25 are both -3).
+      const circ = (d: string) => { const n = Number(d.slice(8)); const len = new Date(Date.UTC(Number(d.slice(0, 4)), Number(d.slice(5, 7)), 0)).getUTCDate(); return n > 24 ? n - len : n; };
+      const plain = dates.map((d) => Number(d.slice(8))), round = dates.map(circ);
+      const trueTie = (plain[0] === plain[2] && plain[1] === plain[3]) || (round[0] === round[2] && round[1] === round[3]);
+      if (trueTie && s?.ambiguity.includes("frequency_ambiguous")) { ties++; continue; }
+      if (!s || s.frequency !== "biweekly" || s.ambiguity.length) wrong.push(`${asOf}: ${s?.frequency} ${s?.ambiguity}`);
+    }
+    expect(wrong).toEqual([]);
+    expect(ties).toBeLessThanOrEqual(31); // only the February-spanning windows
+  });
+
+  it("a clean 4-deposit semi-monthly sender (1st and 16th) is semi-monthly and unflagged", async () => {
+    const [s] = await detectRecurringTransfers(["2026-08-01", "2026-08-16", "2026-09-01", "2026-09-16"].map((d) => plaidVenmo(d, 90, "Four Semi")), AS_OF);
+    expect(s).toMatchObject({ frequency: "semi_monthly", occurrence_count: 4, ambiguity: [] });
+  });
+
+  it("PHASE_2_REWORK_6.md: senders whose amount changed are surfaced and flagged amount_changed, never dropped", async () => {
+    const raise = await detectRecurringTransfers([
+      ...[170, 140, 110, 80].map((d) => plaidVenmo(ago(d), 200, "Raised Sender")),
+      ...[50, 20].map((d) => plaidVenmo(ago(d), 450, "Raised Sender"))], AS_OF);
+    const cut = await detectRecurringTransfers([
+      ...[170, 140, 110, 80].map((d) => plaidVenmo(ago(d), 500, "Cut Sender")),
+      ...[50, 20].map((d) => plaidVenmo(ago(d), 200, "Cut Sender"))], AS_OF);
+    const switched = await detectRecurringTransfers([
+      ...[175, 145, 115, 85, 55].map((d) => plaidVenmo(ago(d), 500, "Switched Sender")),
+      ...[29, 22, 15, 8, 1].map((d) => plaidVenmo(ago(d), 60, "Switched Sender"))], AS_OF);
+    for (const [label, found, n] of [["raise", raise, 6], ["cut", cut, 6], ["switch", switched, 10]] as const) {
+      expect(found, label).toHaveLength(1);
+      expect(found[0].ambiguity, label).toContain("amount_changed");
+      expect(found[0].deposits, label).toHaveLength(n);
+    }
+  });
+
   it("N17: a semi-monthly 1st paid on the previous month's last day stays semi-monthly and clean", async () => {
     const dates = ["2026-04-16", "2026-05-01", "2026-05-16", "2026-05-31", "2026-06-16", "2026-07-01", "2026-07-16", "2026-08-01", "2026-08-16", "2026-08-31", "2026-09-16"];
     const [s] = await detectRecurringTransfers(dates.map((d) => plaidVenmo(d, 180, "Nia Ford")), AS_OF);

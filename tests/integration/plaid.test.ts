@@ -362,7 +362,7 @@ describe("Plaid Sandbox through the deployed functions", () => {
     type Stream = { excluded_transaction_ids: string[]; missed_payments: number };
     expect(rows.map((x: { raw_payload: { stream: Stream } }) => [x.raw_payload.stream.excluded_transaction_ids.length, x.raw_payload.stream.missed_payments]))
       .toEqual([[0, 1], [0, 1], [1, 0], [1, 0]]);
-    expect(rows[0].raw_payload.rule).toMatch(/rule v4/); // N13: the stored label names the rule that ran
+    expect(rows[0].raw_payload.rule).toMatch(/rule v4.1/); // N13: the stored label names the rule that ran
   });
 
   it("ITEM 5 ACCEPTANCE BAR: a clean sender is exact and unflagged; ambiguous senders are surfaced, flagged, and list every deposit", async () => {
@@ -396,7 +396,32 @@ describe("Plaid Sandbox through the deployed functions", () => {
       expect(s.ambiguity.length, `row ${i}`).toBeGreaterThan(0);
       expect(rows[i].review_reasons.some((x: string) => x === "schedule_ambiguous" || x === "irregular_pattern"), `row ${i}`).toBe(true);
     }
-    expect(rows[0].raw_payload.rule).toMatch(/rule v4/);
+    expect(rows[0].raw_payload.rule).toMatch(/rule v4.1/);
+  });
+
+  it("rework 6 item 5: a 4-deposit biweekly sender is clean biweekly; a sender whose amount changed is surfaced and flagged", async () => {
+    // PHASE_2_REWORK_6.md: the clean input it misread, and a qualifying sender it dropped.
+    const t = (d: number, amount: number, text: string) => txn(daysAgo(d), -amount, text);
+    const scenario = { override_accounts: [{ type: "depository", subtype: "checking", starting_balance: 600,
+      transactions: [
+        ...[45, 31, 17, 3].map((d) => t(d, 75, "Venmo from Four Deposits")),
+        ...[170, 140, 110, 80].map((d) => t(d, 200, "Zelle from Raised Sender")), ...[50, 20].map((d) => t(d, 450, "Zelle from Raised Sender")),
+      ] }] };
+    const u = await makeApplicant("rework6");
+    const r = await call("plaid-sandbox", u.token, { action: "link", household_member_id: u.memberId, custom_user: scenario });
+    expect(r.status, JSON.stringify(r.body)).toBe(200);
+    type Stream = { deposits: unknown[]; ambiguity: string[]; frequency: string | null };
+    const rows = await waitFor("two sources with their full history", async () => {
+      const got = (await db.query(`select s.average_amount, r.review_reasons, r.raw_payload
+        from public.income_sources s join public.income_records r on r.income_source_id = s.id
+        where s.provider_connection_id = $1 and s.source_type = 'recurring_transfer' order by s.average_amount`, [r.body.connection_id])).rows;
+      const counts = got.map((x: { raw_payload: { stream: Stream } }) => x.raw_payload.stream.deposits.length);
+      return JSON.stringify(counts) === JSON.stringify([4, 6]) ? got : null;
+    }, 150_000);
+    const four = rows[0].raw_payload.stream as Stream, raised = rows[1].raw_payload.stream as Stream;
+    expect([Number(rows[0].average_amount), four.frequency, four.ambiguity, rows[0].review_reasons]).toEqual([75, "biweekly", [], ["awaiting_family_statement"]]);
+    expect(raised.ambiguity).toContain("amount_changed");
+    expect(rows[1].review_reasons).toContain("schedule_ambiguous");
   });
 
   it("payroll: a Link token for Plaid Payroll Income", async () => {
