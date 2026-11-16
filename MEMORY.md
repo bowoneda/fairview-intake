@@ -383,3 +383,18 @@ The vetter again saw port 3000's listener change pid without touching it (the us
 
 Next action: the eighth vetting.
 
+## PHASE 2 EIGHTH VETTING, 2026-10-02 (recorded 2026-11-16)
+
+Eighth vetting: NOT COMPLETE, 11 PASS and 1 FAIL, recorded in PHASE_2_REWORK_8.md. Item 5:
+- clean semi-monthly senders with 6 or more deposits, paid on the previous or next business day, can be stored biweekly with no flag (a v4.1 regression);
+- 1b, lower weight: clean shifted series on less common day pairs are flagged with a false missed payment; fix, or the user lists it as a limit;
+- concurrent webhooks on one item: a run that sees only Plaid's first 30 days deleted two qualifying senders a fuller run had written, with no error and no retry.
+Rework 8 is in progress and uncommitted (recurring.ts rule v4.3, plaid.ts removes stale sources only on HISTORICAL_UPDATE_COMPLETE, new unit and integration tests). Still open: the AS BUILT 27 entry in PHASE-2-SPEC.md, a concurrent-webhooks test, the user's decision on 1b, test runs, and deployment.
+Lost: the Phase 3 CALC-SPEC draft (calc-spec-phase3-draft.md) was in an earlier session's scratchpad and was never moved into the repository. Its content (2026 imputation threshold $52,787, passbook 0.40%, cases 3.3, 5.3, 6.1, 7.1, 8.1) must be redone before Phase 3.
+
+## REPOSITORY AND CI, 2026-11-16
+
+- GitHub: https://github.com/bowoneda/fairview-intake, created private on 2026-11-16. Before going public, a secret scan found the kie.ai key still in the ui-kit-designer reference file (SECURITY.md SEC-P1-06 correction). History was rewritten with git filter-branch so the key reads ${KIE_API_KEY}, and force-pushed. GitHub still serves the old commits by hash, so the repository stays private until the old objects are gone (delete and re-create the repository, or GitHub support) and the key is rotated.
+- Every commit from the skill install on has a new hash. Documents written before 2026-11-16 cite the old ones. Old to new: 0421e38 6158567, c8c771a 4f6d2f3, ad781cf 447b932, ea01427 bb7f9f2, 82f29c0 30f59c0, cff5ef5 111f559, 780359b 19edc83, 3426e1b b6720f0, 89ca38b c23bd17, a0e5d45 9358774, 681f4bf 05fe5d8, fdc25ff 58239f9, 09cf8a5 22f9586, a636db8 0f04a75, ce85223 8a22672, d0cd629 a61db6e, 9ab4064 13b956a, b2b4ec7 488881f, 521934e 74d128e, 09506a4 bef6d3c, 024e3aa 056015f, d0fcf14 45a2ca3, 4ca14f7 5174bb5, b43adf1 db27f86, 7e2c653 d91c7a7, 35e2cf4 14b5d88. Commits before 0421e38 kept their hashes. The Edge Functions deployed from 35e2cf4 are the same code as 14b5d88.
+- GitHub Actions: .github/workflows/ci.yml (every push and pull request: the genericization check, lint, typecheck, unit tests, build; no secrets) and live-suites.yml (manual only: isolation, integration, and browser suites against fairview-dev, one run at a time, never cancelled mid-run). The live suites need four repository secrets, fairview-dev values only: NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY, SUPABASE_SECRET_KEY, SUPABASE_DB_PASSWORD. Never run them while a vetting sub-agent or a local suite is using fairview-dev. CI results are builder evidence only.
+

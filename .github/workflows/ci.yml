@@ -1,0 +1,64 @@
+# Fast checks on every push and pull request. Needs no secrets and touches no hosted service.
+# The live suites (isolation, integration, browser) are in live-suites.yml and run on demand.
+# Results here are builder evidence only; a phase closes only through the Master Vetting sub-agent (CLAUDE.md).
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      # The genericization check from RULES.md, run as a gate. The forbidden words are split into pieces here so
+      # that this file does not itself contain them, since RULES.md allows no file outside its four governance
+      # documents to name them. The joined pattern is exactly the one in RULES.md.
+      - name: Genericization check (RULES.md)
+        run: |
+          pattern="chi""cago|illi""nois|cook"" county"
+          set +e
+          git grep -n -i -E "$pattern" -- . ":!CLAUDE.md" ":!COLLABORATION-1.md" ":!MASTER-SPEC-1.md" ":!RULES.md"
+          code=$?
+          set -e
+          if [ "$code" -ne 1 ]; then
+            echo "::error::Genericization check failed (exit $code). See RULES.md."
+            exit 1
+          fi
+          echo "Clean: no output, exit 1."
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm run test:unit
+
+      # The build inlines the two public Supabase values. Placeholders are enough to prove the app compiles; the
+      # real values are only needed by the live suites.
+      - name: Build
+        run: npm run build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
+          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: sb_publishable_placeholder

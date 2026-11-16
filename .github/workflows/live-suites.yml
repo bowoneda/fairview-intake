@@ -1,0 +1,90 @@
+# The live suites, against the hosted fairview-dev project, its deployed Edge Functions, the real Plaid Sandbox,
+# and real AWS Textract. Run by hand from the Actions tab.
+#
+# Before running:
+# - Nobody else is using fairview-dev: no local suite run and no vetting sub-agent in progress. Every suite creates
+#   and deletes real users and rows in that one shared database, and overlapping runs collide.
+# - Each integration run makes 3 billable Textract calls, and the browser suite makes 1 more.
+# - Cancelling a run mid-way can leave test data behind (PHASE_2_REWORK_8.md N33); clean up by hand if so.
+#
+# Secrets (repository settings, Secrets and variables, Actions), fairview-dev values ONLY, never staging:
+#   NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY, SUPABASE_SECRET_KEY, SUPABASE_DB_PASSWORD
+# Plaid and AWS keys are not needed here: they stay in Supabase Edge Function secrets.
+#
+# Results are builder evidence only; a phase closes only through the Master Vetting sub-agent (CLAUDE.md).
+name: Live suites (fairview-dev)
+
+on:
+  workflow_dispatch:
+    inputs:
+      suites:
+        description: Which suites to run
+        type: choice
+        default: all
+        options: [all, isolation, integration, browser]
+
+permissions:
+  contents: read
+
+# One run at a time against the shared database, and never cancel one mid-way (teardown must finish).
+concurrency:
+  group: fairview-dev-live
+  cancel-in-progress: false
+
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
+      SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+    steps:
+      - name: Secrets present
+        run: |
+          missing=0
+          for name in NEXT_PUBLIC_SUPABASE_URL NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY SUPABASE_SECRET_KEY SUPABASE_DB_PASSWORD; do
+            if [ -z "${!name}" ]; then echo "::error::Repository secret $name is not set."; missing=1; fi
+          done
+          exit $missing
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # The suites share one database and run one after another. A later suite still runs if an earlier one fails,
+      # so one run reports on all of them; the job fails if any failed.
+      - name: Isolation suite
+        if: ${{ !cancelled() && (inputs.suites == 'all' || inputs.suites == 'isolation') }}
+        run: npm run test:isolation
+
+      - name: Integration suite (Plaid Sandbox, Textract, shape identity)
+        if: ${{ !cancelled() && (inputs.suites == 'all' || inputs.suites == 'integration') }}
+        run: npm run test:integration
+
+      - name: Install Chromium
+        if: ${{ !cancelled() && (inputs.suites == 'all' || inputs.suites == 'browser') }}
+        run: npx playwright install --with-deps chromium
+
+      # Builds the app and serves it on port 3100 (playwright.config.ts), then runs the theming and ingestion specs.
+      - name: Browser suites (theming, ingestion UI)
+        if: ${{ !cancelled() && (inputs.suites == 'all' || inputs.suites == 'browser') }}
+        run: npm run test:theming
+
+      - name: Keep the reports
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-suite-reports-${{ github.run_id }}
+          path: |
+            tests/isolation/reports/
+            tests/theming/screenshots/
+            test-results/
+          if-no-files-found: ignore
+          retention-days: 14
