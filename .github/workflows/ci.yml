@@ -22,22 +22,16 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the whole history, so the push check can scan every commit
 
-      # The genericization check from RULES.md, run as a gate. The forbidden words are split into pieces here so
-      # that this file does not itself contain them, since RULES.md allows no file outside its four governance
-      # documents to name them. The joined pattern is exactly the one in RULES.md.
-      - name: Genericization check (RULES.md)
-        run: |
-          pattern="chi""cago|illi""nois|cook"" county"
-          set +e
-          git grep -n -i -E "$pattern" -- . ":!CLAUDE.md" ":!COLLABORATION-1.md" ":!MASTER-SPEC-1.md" ":!RULES.md"
-          code=$?
-          set -e
-          if [ "$code" -ne 1 ]; then
-            echo "::error::Genericization check failed (exit $code). See RULES.md."
-            exit 1
-          fi
-          echo "Clean: no output, exit 1."
+      # PUSH-CHECKLIST.md, automated: secrets, personal data, forbidden paths, oversized files, and the
+      # genericization check from RULES.md. First the files as they are, then every line in the history,
+      # since a public repository publishes its history too.
+      - name: Push check, current files
+        run: bash scripts/push-check.sh
+      - name: Push check, whole history
+        run: bash scripts/push-check.sh --history --all
 
       - uses: actions/setup-node@v4
         with:

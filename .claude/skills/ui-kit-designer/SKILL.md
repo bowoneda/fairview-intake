@@ -47,7 +47,6 @@ Read ALL of these before doing anything else:
 - `references/dashboard-patterns.md` — KPI cards, chart patterns, nav patterns, layout archetypes (when building dashboards)
 - `references/themes.md` — 8 pre-built premium palettes
 - `references/landing-pages.md` — landing page section patterns and composition rules (when building landing pages)
-- `references/gemini-image-gen.md` — Imagen 4.0 API, prompt templates, base64 embed workflow
 - `references/svg-illustrations.md` — domain-specific inline SVG illustration components (edtech, fintech, SaaS), empty states, hero decoratives, animated SVG patterns, illustration-vs-photo decision rules
 - `references/micro-interactions.md` — custom cursor (3 variants), magnetic buttons, advanced scroll systems (parallax, scroll-linked interpolation, counter-on-scroll, sticky content-swap), smooth page transitions (cross-fade, slide, clip-path), hover micro-interactions (card tilt, shimmer, underline grow)
 - `references/user-design-references.md` — 37 real designs collected by the user, cataloged by category (edtech x14, agency x7, SaaS x5, health x3, fintech x2, e-commerce x2, NGO x1, event x2). Contains H-Tech-specific design direction in Part 3 and a quick-reference pattern lookup table in Part 4. READ THIS when the project is H-Tech or any edtech/African brand — it has direct palette + layout recommendations.
@@ -178,18 +177,9 @@ For each page, define the three-level attention hierarchy:
 
 **Visual language:** [Illustrations, photos, hybrid, or mockup-forward? Describe the dominant visual style.]
 
-**Gemini Imagen asset plan:**
-| Visual slot | Asset type | Prompt summary | Model | Ratio |
-|---|---|---|---|---|
-| [e.g., Hero] | [Real human model] | [Nigerian female student, laptop, golden light] | ultra | 16:9 |
-| [e.g., Hero bg layer] | [Decorative blob shape] | [Organic yellow blob, flat solid #FFD740, white bg] | standard | 1:1 |
-| [e.g., Product showcase] | [Device mockup] | [MacBook showing dashboard, white desk, 45° angle] | ultra | 16:9 |
-| [e.g., Course thumb 1] | [Domain scene] | [Data center server racks, blue lighting] | standard | 4:3 |
-| [e.g., Instructor avatars] | [Headshots] | [Nigerian instructor, clean bg — loop x3] | standard | 1:1 |
-| [e.g., Brand mockup] | [Business card flat lay] | [Navy cards on marble, yellow logo] | ultra | 4:3 |
-| [e.g., Feature icon] | [Custom icon] | [3D graduation cap, gold + navy] | standard | 1:1 |
+**Visual asset plan:** No image generation on this project (CLAUDE.md): every visual slot is an inline SVG component or a CSS treatment. List each visual slot and the SVG component or CSS treatment it uses.
 
-**Reference-matched visuals:** [Which user-design-references.md patterns require generated images? E.g., "REF-03 yellow blob behind hero — generate organic blob shape", "REF-05 arched headshots — generate portraits on solid colored bgs"]
+**Reference-matched visuals:** [Which user-design-references.md patterns the SVG and CSS treatments follow.]
 
 **SVG illustrations used:**
 | Location | Illustration component | Rationale |
@@ -258,11 +248,7 @@ Only begin this phase after the user has responded to the brief and approved (or
 The approved brief is now the blueprint. Every decision made in the brief must be reflected in the code. If the brief says Outfit 800 at -0.03em for headlines, that is what gets built. If the brief says Shot 26's weekly calendar pattern, that is the component that gets built.
 
 ### SVG Illustrations
-Read `references/svg-illustrations.md`. Before generating any Gemini images, determine what each visual slot needs:
-- Abstract concept / decorative / empty state / feature icon → use SVG illustration component from the file
-- Real person / place / course thumbnail / testimonial avatar → use Gemini Imagen
-
-For hero sections: use the HYBRID approach — SVG blob/dot-grid as background layer + Gemini photo as mid layer + SVG FloatingBadge as top layer.
+Read `references/svg-illustrations.md`. Every visual slot uses an SVG illustration component from the file (decorative, empty state, feature icon, hero background). No image generation on this project (CLAUDE.md): every visual slot is an inline SVG component or a CSS treatment.
 
 Copy the relevant SVG components from `references/svg-illustrations.md` directly into the JSX. Remap all colors to the `C` palette constant — never leave hardcoded hex in SVGs.
 
@@ -279,30 +265,8 @@ Read `references/micro-interactions.md`. Apply the systems approved in the Desig
 
 **Performance**: Add `willChange: 'transform'` to all animated elements. Never animate layout properties (width, height, top, left, margin). Disable parallax at mobile widths (< 768px).
 
-### Visual Asset Production (Gemini Imagen 4.0)
-Read `references/gemini-image-gen.md` — it is the complete asset pipeline, not just a photo tool.
-
-**Before writing a single line of HTML, produce a full asset plan:**
-1. List every visual slot in the design (hero, thumbnails, avatars, icons, shapes, mockups, brand assets)
-2. Classify each slot using the Imagen vs SVG decision table in `gemini-image-gen.md` Part 4
-3. Generate all Imagen assets first — use `__PLACEHOLDER__` tokens in the HTML template, then `.replace()` after generation
-
-**Asset types to generate (not just hero photos):**
-- **Real human models** — Nigerian/African students, instructors, professionals with correct demographic prompts. Never use generic Western-default people for African brands.
-- **Brand model shots** — people wearing brand-colored clothing, holding branded items, in brand-relevant environments
-- **Device mockups** — MacBook/iPhone/iPad showing the actual product UI. For landing pages that showcase the product, a device mockup is required, not optional.
-- **UI/UX kit visuals** — rendered images of product dashboards, app screens, feature flows, or onboarding steps shown as clean visual assets (not just coded components)
-- **Decorative shapes** — organic blob shapes, gradient mesh backgrounds, textured overlays, arch/pill frame bg colors — all generated in the exact brief-approved palette colors
-- **Custom icons** — rich 3D-style or illustrated-style domain icons where flat SVG would feel generic (graduation cap in 3D gold, glowing circuit board, etc.)
-- **Brand identity mockups** — business cards, branded merch, logo-in-context scenes
-- **Reference-matched visuals** — when the brief cites a reference from `user-design-references.md`, generate images that MATCH that reference's visual style (see Part 5 of gemini-image-gen.md for exact prompt patterns per reference)
-
-**Quality rules:**
-- Use `imagen-4.0-ultra-generate-001` for hero images, brand models, device mockups
-- Use `imagen-4.0-generate-001` for thumbnails, avatars, icons, shapes
-- Always specify nationality/ethnicity in person prompts when the brand has cultural context
-- Always include a relevant Unsplash fallback URL in every `gen_img` call
-- Never prompt for text in images — all typography is always HTML/CSS on top
+### Visual Assets
+No image generation on this project (CLAUDE.md): every visual slot is an inline SVG component or a CSS treatment. No external image service is called, and no applicant data ever leaves the platform for one (SECURITY.md, third party data exposure).
 
 ### CRITICAL: Write via Python
 ALWAYS write the HTML file using Python — never heredoc, never shell echo:
@@ -415,7 +379,7 @@ When building a landing page (not a dashboard), the brief still applies but Phas
 
 **Three-Layer Image Composition (required):**
 - Layer 1 (back): Decorative shapes — circles, blobs, gradient sections
-- Layer 2 (mid): Gemini-generated images as base64 data URLs
+- Layer 2 (mid): SVG illustration components
 - Layer 3 (front): Floating glass cards, badges, stat overlays
 
 ---
@@ -425,18 +389,14 @@ When building a landing page (not a dashboard), the brief still applies but Phas
 1. **Skipping the design brief** — Never jump straight to code. The brief is not optional or a courtesy — it is Phase 2.
 2. **Shell heredoc for JSX** — Always use Python. Output to `<output folder>/`
 3. **External chart libraries** — Recharts/Chart.js fail in standalone HTML. Custom SVG only.
-4. **Gradient shapes instead of images** — Every `<img>` slot must use a Gemini-generated data URL or Unsplash fallback.
+4. **Gradient shapes instead of images** — Every visual slot uses an SVG illustration component.
 5. **Brief with empty rationale** — "I chose navy because it fits" is not a rationale. Name the emotional signal, the brand archetype behavior, and the reference shot.
 6. **Too few pages** — 4+ navigable pages for dashboards. 6+ sections for landing pages.
 7. **Uniform spacing** — 8px within groups, 16-20px between components, 32-48px between sections, 80-120px between page sections.
 8. **Flat lifeless cards** — Every card: hover state + shadow + radius. No exceptions.
 9. **Missing data** — Charts need 7-12 data points. KPI cards need trend indicators. Tables need 5+ rows.
 10. **Generic palette** — Never default to gray-and-blue. Brief-approved palette overrides any default.
-11. **Gradient rectangles instead of illustrations** — Every decorative visual slot must use either an SVG illustration component or a Gemini image. A `<div>` with `background: linear-gradient(...)` is never a valid substitute for actual visual content.
+11. **Gradient rectangles instead of illustrations** — Every decorative visual slot must use an SVG illustration component. A `<div>` with `background: linear-gradient(...)` is never a valid substitute for actual visual content.
 12. **Animating layout properties** — Never animate `width`, `height`, `top`, `left`, `margin`, or `padding`. Animate `transform` and `opacity` only. Layout animations cause reflow and jank.
 13. **Magnetic buttons everywhere** — Maximum 2 magnetic CTAs per page, hero area only. Applying magnetic behavior to nav links, table rows, or form buttons breaks usability.
 14. **No page transitions** — Hard state-swap between pages with zero transition is 2015 SPA behavior. Always wrap page content in at least the cross-fade `PageTransition` component.
-15. **Treating Imagen as "hero photo only"** — Imagen generates the full visual asset set: human models, brand models in branded clothing, device mockups, UI/UX kit renders, custom icons, decorative blob shapes, brand identity mockups, and reference-matched visuals. Using it only for one hero image wastes 90% of its value.
-16. **Generic Western-default people** — When the brand has a cultural identity (Nigerian, African, etc.), every human model prompt MUST specify the correct nationality/ethnicity. A generic prompt produces a generic face that breaks brand authenticity.
-17. **No device mockup on a product landing page** — Any landing page showcasing a digital product (app, dashboard, SaaS tool) requires at least one photorealistic device mockup (MacBook, iPhone, or multi-device) showing the actual product UI. A coded component is not a substitute — it must look like a real product photograph.
-18. **Skipping the Imagen asset plan in the brief** — Section 8 of the Design Brief must include a complete Imagen asset table (slot, type, prompt summary, model, ratio) before any approval. "Will generate images later" is not a plan.

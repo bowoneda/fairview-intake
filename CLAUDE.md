@@ -57,9 +57,9 @@ The remaining roles from COLLABORATION-1.md, Project Architect, Financial API In
 .claude/skills/ui-kit-designer/: the UX and Interface Skill's design toolkit, installed 2026-09-28 from the user's THUB project (an expanded version of the ui-kit-designer skill). Use it for its design discipline: the design brief approved by the user before any code, hierarchy maps, and the typography, spacing, and anti-pattern references. On this project it is subordinate to DESIGN.md, RULES.md, and SECURITY.md, with these overrides:
 - Output is Next.js components in this repository, never a standalone HTML file, and never written to the THUB output folder.
 - The applicant flow follows DESIGN.md's calm, plain, legible direction. No custom cursors, no magnetic buttons, no decorative page transitions. Tenant colors appear only in the roles DESIGN.md allows.
-- No image generation service (kie.ai or Imagen) is called on this project unless first cleared against SECURITY.md's third party data rules, and never with applicant data.
+- No image generation service is used on this project. Visuals are inline SVG or CSS.
 - Its brand examples (H-Tech, Nigerian edtech) are not this project's brand. The fictional operators and regulators are.
-The installed copy has its hardcoded kie.ai API key removed; it reads KIE_API_KEY from the environment instead.
+The installed copy has no image generation pipeline: its reference file and every instruction for it were removed on 2026-11-16, from the files and from the whole git history, after a provider API key was found in that reference file (SECURITY.md, SEC-P1-06). The skill's install commit had copied it in. Anything copied into this repository from another project goes through PUSH-CHECKLIST.md first.
 
 RULES.md: engineering conventions and constraints specific to this codebase.
 

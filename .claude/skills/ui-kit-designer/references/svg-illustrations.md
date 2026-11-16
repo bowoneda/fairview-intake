@@ -14,15 +14,8 @@ Custom inline SVG illustrations for premium UI. NOT stock Unsplash photos — th
 - Abstract concepts (data, AI, cloud, growth)
 - Background decorative elements
 
-### Use Gemini Photos (from gemini-image-gen.md) for:
-- Instructor/team portraits
-- Course thumbnails showing real subjects
-- Testimonial avatars
-- "Real people learning" hero images
-- Event photography and campus shots
-
-### The Hybrid Rule
-Best premium design uses BOTH: SVG illustration as the decorative layer + Gemini photo as the human/emotional layer. Example: hero section has an SVG circuit pattern in the background, a Gemini photo of a student in the middle, and SVG floating badges on top.
+### Photos
+No image generation on this project (CLAUDE.md): every visual slot is an inline SVG component or a CSS treatment. Slots that would hold a photo elsewhere use an SVG illustration here.
 
 ---
 
@@ -612,15 +605,15 @@ function EdtechHeroIllustration({ size = 360 }) {
 ### Where illustrations are used (vs photos)
 | Location | Use |
 |----------|-----|
-| Hero section main visual | HYBRID — SVG illustration as background/decorative + Gemini photo of real person in foreground |
+| Hero section main visual | HYBRID — SVG illustration as background/decorative + SVG illustration in foreground |
 | Feature section icons | SVG illustration (GraduationCap, LightBulb, etc.) — 48-64px |
 | Empty states | SVG illustration — 100-120px + CTA button |
 | Hero background | HeroBlob + DotGrid |
 | Hero floating elements | FloatingBadge + SVG stat components |
-| Course thumbnails | Gemini photo |
-| Instructor photos | Gemini photo |
-| Testimonial avatars | Gemini photo |
-| About page hero | Gemini photo (real team/campus feeling) |
+| Course thumbnails | SVG illustration |
+| Instructor photos | SVG illustration |
+| Testimonial avatars | SVG illustration |
+| About page hero | SVG illustration |
 | 404 / error pages | SVG illustration |
 
 ### Animation — when to animate SVGs
