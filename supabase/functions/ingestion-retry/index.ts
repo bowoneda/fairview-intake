@@ -3,7 +3,7 @@
 // Backoff after a failed attempt: 1, 5, 15, 60 minutes; after 5 attempts the event stays failed and the
 // connection is marked error for a person to look at.
 import { json, serviceClient } from "../_shared/auth.ts";
-import { ingestItem, ingestPayroll, safeReason, type Connection } from "../_shared/plaid.ts";
+import { ingestConnection, safeReason, type Connection } from "../_shared/plaid.ts";
 
 const BACKOFF_MINUTES = [1, 5, 15, 60];
 const MAX_ATTEMPTS = 5;
@@ -37,8 +37,7 @@ Deno.serve(async (req) => {
         results.push({ id: e.id, status: "ignored" });
         continue;
       }
-      if ((c as Connection).product === "payroll_income") await ingestPayroll(svc, c as Connection);
-      else await ingestItem(svc, c as Connection);
+      await ingestConnection(svc, c as Connection);
       await done("processed", { last_error: null, next_attempt_at: null });
       results.push({ id: e.id, status: "processed" });
     } catch (err) {
@@ -56,6 +55,21 @@ Deno.serve(async (req) => {
         }).eq("id", e.id);
         results.push({ id: e.id, status: "rescheduled" });
       }
+    }
+  }
+  // Requests no run holds: a run that failed or was killed leaves its connection's request behind (AS BUILT 27).
+  const { data: pending } = await svc.rpc("pending_ingest_requests", { p_limit: 10 });
+  for (const c of (pending ?? []) as Connection[]) {
+    try {
+      const s = await ingestConnection(svc, c);
+      results.push({ id: c.id, status: s.queued ? "pending_held" : "pending_ingested" });
+    } catch (err) {
+      // Not retried again from here: a connection that keeps failing (an item removed at Plaid) would otherwise be
+      // read every 5 minutes for ever. Failed webhook events keep their own bounded retries, and Plaid's next
+      // webhook raises a new request.
+      console.error(`ingestion-retry: pending request failed ${safeReason(err)}`);
+      await svc.from("provider_connections").update({ ingest_requested: false }).eq("id", c.id);
+      results.push({ id: c.id, status: "pending_failed" });
     }
   }
   return json(200, { claimed: results.length, results });

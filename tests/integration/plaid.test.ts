@@ -362,7 +362,7 @@ describe("Plaid Sandbox through the deployed functions", () => {
     type Stream = { excluded_transaction_ids: string[]; missed_payments: number };
     expect(rows.map((x: { raw_payload: { stream: Stream } }) => [x.raw_payload.stream.excluded_transaction_ids.length, x.raw_payload.stream.missed_payments]))
       .toEqual([[0, 1], [0, 1], [1, 0], [1, 0]]);
-    expect(rows[0].raw_payload.rule).toMatch(/rule v4.2/); // N13: the stored label names the rule that ran
+    expect(rows[0].raw_payload.rule).toMatch(/rule v4.4/); // N13: the stored label names the rule that ran
   });
 
   it("ITEM 5 ACCEPTANCE BAR: a clean sender is exact and unflagged; ambiguous senders are surfaced, flagged, and list every deposit", async () => {
@@ -396,7 +396,7 @@ describe("Plaid Sandbox through the deployed functions", () => {
       expect(s.ambiguity.length, `row ${i}`).toBeGreaterThan(0);
       expect(rows[i].review_reasons.some((x: string) => x === "schedule_ambiguous" || x === "irregular_pattern"), `row ${i}`).toBe(true);
     }
-    expect(rows[0].raw_payload.rule).toMatch(/rule v4.2/);
+    expect(rows[0].raw_payload.rule).toMatch(/rule v4.4/);
   });
 
   it("rework 6/7 item 5: a 4-deposit biweekly sender is proposed biweekly and flagged; a sender whose amount changed is surfaced and flagged", async () => {
@@ -424,6 +424,100 @@ describe("Plaid Sandbox through the deployed functions", () => {
       .toEqual([75, "biweekly", ["frequency_ambiguous"], ["awaiting_family_statement", "schedule_ambiguous"]]);
     expect(raised.ambiguity).toContain("amount_changed");
     expect(rows[1].review_reasons).toContain("schedule_ambiguous");
+  });
+
+  it("rework 8 item 5: a long semi-monthly sender paid on the next business day is clean semi-monthly", async () => {
+    // PHASE_2_REWORK_8.md: the 3rd and 18th, 6 deposits, weekend dates moved to the next business day.
+    const dates: string[] = [];
+    for (let m = 0; dates.length < 6 && m < 8; m++) {
+      for (const dom of [18, 3]) {
+        let t = Date.UTC(today.getUTCFullYear(), today.getUTCMonth() - m, dom);
+        while ([0, 6].includes(new Date(t).getUTCDay())) t += 86_400_000;
+        if (t <= today.getTime() && dates.length < 6) dates.unshift(new Date(t).toISOString().slice(0, 10));
+      }
+    }
+    dates.sort();
+    const scenario = { override_accounts: [{ type: "depository", subtype: "checking", starting_balance: 400,
+      transactions: dates.map((d) => txn(d, -360, "Zelle from Shifted Semi")) }] };
+    const u = await makeApplicant("rework8");
+    const r = await call("plaid-sandbox", u.token, { action: "link", household_member_id: u.memberId, custom_user: scenario });
+    expect(r.status, JSON.stringify(r.body)).toBe(200);
+    const row = await waitFor("the semi-monthly source with all 6 deposits", async () => {
+      const got = (await db.query(`select s.frequency, s.average_amount, s.occurrence_count, r.review_reasons, r.raw_payload
+        from public.income_sources s join public.income_records r on r.income_source_id = s.id
+        where s.provider_connection_id = $1 and s.source_type = 'recurring_transfer'`, [r.body.connection_id])).rows;
+      return got.length === 1 && got[0].occurrence_count === 6 ? got[0] : null;
+    }, 150_000);
+    expect([row.frequency, Number(row.average_amount), row.raw_payload.stream.ambiguity, row.review_reasons])
+      .toEqual(["semi_monthly", 360, [], ["awaiting_family_statement"]]);
+  });
+
+  it("rework 8 failure 2: one ingestion at a time per connection (the lease functions, driven directly)", async () => {
+    const u = await makeApplicant("lease");
+    // A connection with no Plaid item: nothing at Plaid to remove, and teardown deletes it with its applicant.
+    const c = (await db.query(`insert into public.provider_connections (tenant_id, applicant_id, household_member_id, provider)
+      values ($1, $2, $3, 'plaid') returning id`, [tenantId, u.appId, u.memberId])).rows[0].id;
+    const fn = async (name: string) => (await db.query(`select public.${name}($1) as r`, [c])).rows[0].r;
+    const state = async () => (await db.query(`select ingest_lease_until is not null as held, ingest_requested as requested
+      from public.provider_connections where id = $1`, [c])).rows[0];
+    expect(await fn("begin_ingest")).toBe(true); // the first run takes the lease
+    expect(await state()).toEqual({ held: true, requested: false });
+    expect(await fn("begin_ingest")).toBe(false); // a second is refused, and its request recorded for the first
+    expect(await state()).toEqual({ held: true, requested: true });
+    expect(await fn("end_ingest")).toBe(true); // so the holder runs again, keeping the lease
+    expect(await state()).toEqual({ held: true, requested: false });
+    expect(await fn("end_ingest")).toBe(false); // nothing waiting: released
+    expect(await state()).toEqual({ held: false, requested: false });
+    // A failed run releases with its request left behind, for the retry job.
+    expect(await fn("begin_ingest")).toBe(true);
+    await fn("release_ingest");
+    expect(await state()).toEqual({ held: false, requested: true });
+    expect((await db.query(`select id from public.pending_ingest_requests(1000)`)).rows.map((r: { id: string }) => r.id)).toContain(c);
+    // A lease left by a killed run expires, and a new run may take it.
+    await db.query(`update public.provider_connections set ingest_lease_until = now() - interval '1 second', ingest_requested = false where id = $1`, [c]);
+    expect(await fn("begin_ingest")).toBe(true);
+    expect(await fn("end_ingest")).toBe(false);
+    // No client role can call them.
+    for (const name of ["begin_ingest", "end_ingest", "release_ingest"]) {
+      const { error } = await u.client.rpc(name, { p_connection_id: c });
+      expect(error?.code, name).toBe("42501");
+    }
+    const { error } = await u.client.rpc("pending_ingest_requests", { p_limit: 10 });
+    expect(error?.code).toBe("42501");
+  });
+
+  it("rework 8 failure 2: webhooks racing Plaid's staged history leave every qualifying sender (the eighth vetting's P and X5)", async () => {
+    // P: every 30 days, last 4 days ago, plus a one-off. X5: every 14 days until 22 days ago (no active run, but
+    // recent). Both qualify only on the full history: Plaid's first stage (30 days) shows P twice and X5 once.
+    const scenario = { override_accounts: [{ type: "depository", subtype: "checking", starting_balance: 500, transactions: [
+      ...[154, 124, 94, 64, 34, 4].map((d) => txn(daysAgo(d), -545, "Cash App from Abe Colt")),
+      txn(daysAgo(2), -385, "Cash App from Abe Colt"),
+      ...Array.from({ length: 12 }, (_, k) => txn(daysAgo(22 + 14 * k), -81, "Venmo from Jo Lamm")),
+    ] }] };
+    const u = await makeApplicant("race");
+    const r = await call("plaid-sandbox", u.token, { action: "link", household_member_id: u.memberId, custom_user: scenario });
+    expect(r.status, JSON.stringify(r.body)).toBe(200);
+    const conn = r.body.connection_id;
+    // More webhooks on top of Plaid's own, while its history is still arriving.
+    const fired = await Promise.all([1, 2, 3].map(() =>
+      call("plaid-sandbox", u.token, { action: "fire_webhook", connection_id: conn, webhook_code: "SYNC_UPDATES_AVAILABLE" })));
+    expect(fired.map((f) => f.status)).toEqual([200, 200, 200]);
+    const item = (await db.query(`select provider_ref from public.provider_connections where id = $1`, [conn])).rows[0].provider_ref;
+    // Settled: the full history has been processed, no event is in flight or waiting, and no run holds the connection.
+    await waitFor("every webhook processed and the connection idle", async () => {
+      const ev = (await db.query(`select event_type, status from public.webhook_events where provider_ref = $1`, [item])).rows;
+      const c = (await db.query(`select ingest_lease_until, ingest_requested from public.provider_connections where id = $1`, [conn])).rows[0];
+      const settled = ev.some((e: { event_type: string; status: string }) => e.event_type === "TRANSACTIONS.HISTORICAL_UPDATE" && e.status === "processed")
+        && ev.every((e: { status: string }) => e.status === "processed" || e.status === "ignored")
+        && c.ingest_lease_until === null && c.ingest_requested === false;
+      return settled ? true : null;
+    }, 180_000);
+    const rows = (await db.query(`select s.frequency, s.average_amount, s.occurrence_count, r.raw_payload
+      from public.income_sources s join public.income_records r on r.income_source_id = s.id
+      where s.provider_connection_id = $1 and s.source_type = 'recurring_transfer' order by s.average_amount desc`, [conn])).rows;
+    expect(rows.map((x: { frequency: string | null; average_amount: string; occurrence_count: number; raw_payload: { stream: { ambiguity: string[] } } }) =>
+      [x.frequency, Number(x.average_amount), x.occurrence_count, x.raw_payload.stream.ambiguity]))
+      .toEqual([["monthly", 545, 6, ["deposits_left_out"]], [null, 81, 12, ["irregular_pattern"]]]);
   });
 
   it("payroll: a Link token for Plaid Payroll Income", async () => {

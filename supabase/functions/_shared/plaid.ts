@@ -62,6 +62,39 @@ export interface IngestSummary {
   transactions: number;
   streams: number;
   status: "ingested" | "awaiting_data";
+  /** True when another run held the connection: this request was recorded for that run, not run here. */
+  queued?: boolean;
+}
+
+/** Re-runs one holder makes for requests that arrived during its runs, before leaving the rest to the retry job. */
+const MAX_INGEST_RERUNS = 4;
+
+/**
+ * Every ingestion goes through here: one run at a time per connection (migration 20261117001700, AS BUILT 27).
+ * If a run already holds the connection, the request is recorded and this call returns at once (queued); the
+ * holder runs again when it finishes, so the final run always fetches after the final request. On failure the
+ * lease is released with the request left in place, and the caller's own failure handling retries as before.
+ */
+export async function ingestConnection(svc: SupabaseClient, c: Connection): Promise<IngestSummary> {
+  const run = c.product === "payroll_income" ? ingestPayroll : ingestItem;
+  const { data: got, error } = await svc.rpc("begin_ingest", { p_connection_id: c.id });
+  if (error) throw new Error("ingest_lease");
+  if (got !== true) return { accounts: 0, transactions: 0, streams: 0, status: "awaiting_data", queued: true };
+  try {
+    for (let rerun = 0; ; rerun++) {
+      const summary = await run(svc, c);
+      const { data: again, error: endErr } = await svc.rpc("end_ingest", { p_connection_id: c.id });
+      if (endErr) throw new Error("ingest_lease");
+      if (again !== true) return summary;
+      if (rerun >= MAX_INGEST_RERUNS) {
+        await svc.rpc("release_ingest", { p_connection_id: c.id }); // the retry job reads it again
+        return summary;
+      }
+    }
+  } catch (e) {
+    await svc.rpc("release_ingest", { p_connection_id: c.id });
+    throw e;
+  }
 }
 
 /**
@@ -157,8 +190,11 @@ export async function ingestItem(svc: SupabaseClient, c: Connection, asOf = new 
 
   // A stream that no longer qualifies on this read (N21: Plaid delivers history in stages, so an early read can
   // see a pattern the full history does not) is removed, but only while nobody has acted on it: a source the
-  // family has stated or a reviewer has decided is kept as is. Skipped when this read has no transactions.
-  if (txns.length > 0) {
+  // family has stated or a reviewer has decided is kept as is. Skipped when this read has no transactions or is
+  // not yet the complete history.
+  // Only a read of the complete history may remove anything (PHASE_2_REWORK_8.md): runs on one item can overlap,
+  // and a run that sees only Plaid's first 30 days must not delete a stream that a fuller run has just written.
+  if (txns.length > 0 && updateStatus === "HISTORICAL_UPDATE_COMPLETE") {
     const current = streams.map((s) => s.stream_ref);
     const { data: stale } = await svc.from("income_sources").select("id, provider_stream_ref")
       .eq("provider_connection_id", c.id).eq("source_type", "recurring_transfer").eq("status", "awaiting_family_statement");
@@ -184,7 +220,7 @@ export async function exchangeAndIngest(svc: SupabaseClient, c: Connection, publ
   if (refErr) throw new Error("connection_update");
   const { error: tokErr } = await svc.rpc("store_provider_token", { p_connection_id: c.id, p_token: ex.access_token });
   if (tokErr) throw new Error("token_store");
-  return c.product === "payroll_income" ? await ingestPayroll(svc, c) : await ingestItem(svc, c);
+  return await ingestConnection(svc, c);
 }
 
 /**

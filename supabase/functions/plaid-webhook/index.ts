@@ -4,7 +4,7 @@
 //   iat no more than 5 minutes old; SHA-256 of the exact raw body equals request_body_sha256 (constant time).
 import type { JWK } from "jose";
 import { json, serviceClient } from "../_shared/auth.ts";
-import { ingestItem, ingestPayroll, safeReason, plaid, PlaidError, type Connection } from "../_shared/plaid.ts";
+import { ingestConnection, safeReason, plaid, PlaidError, type Connection } from "../_shared/plaid.ts";
 import { sha256Hex, verifyPlaidWebhook } from "../_shared/plaid-verify.ts";
 
 const keyCache = new Map<string, JWK>();
@@ -74,10 +74,11 @@ Deno.serve(async (req) => {
     const code = String(event.webhook_code);
     if (event.webhook_type === "TRANSACTIONS" &&
         ["SYNC_UPDATES_AVAILABLE", "INITIAL_UPDATE", "HISTORICAL_UPDATE", "DEFAULT_UPDATE", "RECURRING_TRANSACTIONS_UPDATE"].includes(code)) {
-      await ingestItem(svc, c as Connection);
+      // One run at a time per connection (AS BUILT 27): if a run holds it, this request is handed to that run.
+      await ingestConnection(svc, c as Connection);
     } else if (event.webhook_type === "INCOME") {
       // Payroll Income is ready (or updated): read the pay stubs.
-      await ingestPayroll(svc, c as Connection);
+      await ingestConnection(svc, c as Connection);
     } else if (event.webhook_type === "ITEM" && (code === "ERROR" || code === "PENDING_EXPIRATION" || code === "PENDING_DISCONNECT")) {
       const errorCode = String(event.error?.error_code ?? code);
       await svc.from("provider_connections").update({

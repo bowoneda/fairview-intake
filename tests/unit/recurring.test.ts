@@ -324,6 +324,40 @@ describe("clean or flagged (ITEM 5 ACCEPTANCE BAR)", () => {
     expect(f5.ambiguity.length).toBeGreaterThan(0);
   });
 
+  it("PHASE_2_REWORK_8.md: long semi-monthly series paid on a business day are semi-monthly, never biweekly unflagged", async () => {
+    // Day pairs, 6 to 12 deposits, weekend dates moved to the previous or the next business day, many as-of dates.
+    const pairs: [number, number | "last"][] = [[1, 15], [15, "last"], [5, 20], [10, 25], [3, 18], [1, 16], [7, 22]];
+    const iso = (y: number, m: number, d: number) => new Date(Date.UTC(y, m, d)).toISOString().slice(0, 10);
+    const shift = (date: string, dir: -1 | 1) => {
+      let t = Date.parse(date);
+      while ([0, 6].includes(new Date(t).getUTCDay())) t += dir * 86_400_000;
+      return new Date(t).toISOString().slice(0, 10);
+    };
+    let total = 0, semiClean = 0;
+    const wrong: string[] = [];
+    for (const [a, b] of pairs) {
+      for (const dir of [-1, 1] as const) {
+        for (let endMonth = 3; endMonth < 12; endMonth++) {
+          for (const n of [6, 8, 10, 12]) {
+            const dates: string[] = [];
+            for (let m = endMonth; dates.length < n + 2 && m > endMonth - 8; m--) {
+              const last = new Date(Date.UTC(2026, m + 1, 0)).getUTCDate();
+              dates.unshift(iso(2026, m, b === "last" ? last : b), iso(2026, m, a));
+            }
+            const sorted = dates.map((d) => shift(d, dir)).sort().slice(-n);
+            const asOf = new Date(Date.parse(sorted[sorted.length - 1]) + 3 * 86_400_000).toISOString().slice(0, 10);
+            const [s] = await detectRecurringTransfers(sorted.map((d) => plaidVenmo(d, 300, "Shifted Semi")), asOf);
+            total++;
+            if (s?.frequency === "semi_monthly" && s.ambiguity.length === 0) semiClean++;
+            else if (!s || s.ambiguity.length === 0) wrong.push(`${a}/${b} dir ${dir} n ${n} end ${endMonth}: ${s?.frequency} unflagged`);
+          }
+        }
+      }
+    }
+    expect(wrong).toEqual([]); // never misread without a flag
+    expect(semiClean / total).toBeGreaterThan(0.9); // and nearly all read as clean semi-monthly
+  });
+
   it("6 or more deposits on a clean biweekly or semi-monthly schedule are exact and unflagged", async () => {
     const bi = await detectRecurringTransfers([73, 59, 45, 31, 17, 3].map((d) => plaidVenmo(ago(d), 75, "Six Biweekly")), AS_OF);
     expect(bi[0]).toMatchObject({ frequency: "biweekly", occurrence_count: 6, ambiguity: [] });
@@ -445,5 +479,89 @@ describe("detectRecurringTransfers", () => {
       counterparties: [{ name: "Cash App" }] }));
     const [s] = await detectRecurringTransfers(txns, AS_OF);
     expect(s.app).toBe("Cash App");
+  });
+});
+
+describe("rule v4.4: schedules paid on business days (PHASE_2_REWORK_8.md, AS BUILT 27)", () => {
+  const v = (dates: string[], sender: string, amount = 300) => dates.map((d) => plaidVenmo(d, amount, sender));
+  const after = (dates: string[]) => new Date(Date.parse(dates[dates.length - 1]) + 86_400_000).toISOString().slice(0, 10);
+
+  it("failure 1: the 14th and 28th paid on the next business day (Presidents Day included) is clean semi-monthly", async () => {
+    // Feb 14 2026 is a Saturday and Feb 16 is Presidents Day, so it is paid Tuesday the 17th.
+    const dates = ["2026-02-17", "2026-03-02", "2026-03-16", "2026-03-30", "2026-04-14", "2026-04-28"];
+    const [s] = await detectRecurringTransfers(v(dates, "Fourteen Eight"), after(dates));
+    expect(s).toMatchObject({ frequency: "semi_monthly", occurrence_count: 6, average_amount: 300, missed_payments: 0, ambiguity: [] });
+  });
+
+  it("failure 1b: a holiday weekend stretching a gap past the band is no longer a missed payment", async () => {
+    // The 1st and 14th, next business day: Jan 1 2027 is a Friday holiday, so it is paid Monday Jan 4 (a 21 day gap).
+    const dates = ["2026-11-02", "2026-11-16", "2026-12-01", "2026-12-14", "2027-01-04", "2027-01-14"];
+    const [s] = await detectRecurringTransfers(v(dates, "First Fourteenth"), after(dates));
+    expect(s).toMatchObject({ frequency: "semi_monthly", occurrence_count: 6, missed_payments: 0, ambiguity: [] });
+  });
+
+  it("failure 1b: a 17 day pair paid on the previous business day keeps every deposit", async () => {
+    const dates = ["2025-12-18", "2025-12-31", "2026-01-16", "2026-01-30", "2026-02-18", "2026-02-27", "2026-03-18"];
+    const [s] = await detectRecurringTransfers(v(dates, "Seventeen Pair"), after(dates));
+    expect(s).toMatchObject({ frequency: "semi_monthly", occurrence_count: 7, ambiguity: [] });
+  });
+
+  it("a weekly Monday payer moved to the Friday before a Monday holiday stays clean weekly", async () => {
+    // MLK Day 2026 is Monday Jan 19: paid Friday Jan 16 (gaps of 4 and 10 days, outside the weekly band).
+    const dates = ["2025-12-29", "2026-01-05", "2026-01-12", "2026-01-16", "2026-01-26", "2026-02-02"];
+    const [s] = await detectRecurringTransfers(v(dates, "Monday Payer", 80), after(dates));
+    expect(s).toMatchObject({ frequency: "weekly", occurrence_count: 6, average_amount: 80, ambiguity: [] });
+  });
+
+  it("a clean biweekly sender across February stays biweekly and unflagged (no business-day moves beats some)", async () => {
+    const dates = ["2025-12-31", "2026-01-14", "2026-01-28", "2026-02-11", "2026-02-25", "2026-03-11"];
+    const [s] = await detectRecurringTransfers(v(dates, "February Biweekly", 75), after(dates));
+    expect(s).toMatchObject({ frequency: "biweekly", occurrence_count: 6, ambiguity: [] });
+  });
+
+  it("a payer moves every payment the same way: a mixed-direction biweekly reading does not tie with semi-monthly", async () => {
+    // The 1st and 15th, next business day, 2027. Biweekly Mondays would need Jan 18 (MLK) moved back but Feb 15
+    // (Presidents Day) moved forward; no single payer does both.
+    const dates = ["2027-01-04", "2027-01-15", "2027-02-01", "2027-02-16", "2027-03-01", "2027-03-15"];
+    const [s] = await detectRecurringTransfers(v(dates, "One Direction"), after(dates));
+    expect(s).toMatchObject({ frequency: "semi_monthly", occurrence_count: 6, ambiguity: [] });
+  });
+
+  it("sweep: clean semi-monthly pairs, 6 to 12 deposits, exact or moved either way around weekends and bank holidays", async () => {
+    const DAY = 86_400_000;
+    const bank = (t: number) => {
+      const d = new Date(t), w = d.getUTCDay(), y = d.getUTCFullYear(), iso = d.toISOString().slice(0, 10);
+      const nth = (m: number, dow: number, n: number) => { let x = 1; while (new Date(Date.UTC(y, m, x)).getUTCDay() !== dow) x++; return new Date(Date.UTC(y, m, x + 7 * (n - 1))).toISOString().slice(0, 10); };
+      const sun = (m: number, x: number) => { const t2 = Date.UTC(y, m, x); return new Date(new Date(t2).getUTCDay() === 0 ? t2 + DAY : t2).toISOString().slice(0, 10); };
+      let lastMon = 31; while (new Date(Date.UTC(y, 4, lastMon)).getUTCDay() !== 1) lastMon--;
+      const hol = [sun(0, 1), nth(0, 1, 3), nth(1, 1, 3), new Date(Date.UTC(y, 4, lastMon)).toISOString().slice(0, 10), sun(5, 19),
+        sun(6, 4), nth(8, 1, 1), nth(9, 1, 2), sun(10, 11), nth(10, 4, 4), sun(11, 25)];
+      return w !== 0 && w !== 6 && !hol.includes(iso);
+    };
+    const move = (t: number, dir: number) => { while (dir && !bank(t)) t += dir * DAY; return t; };
+    const wrong: string[] = [];
+    let total = 0;
+    for (const [a, b] of [[1, 15], [15, 0], [1, 14], [5, 20], [14, 28], [1, 18], [12, 0], [10, 25]] as const) {
+      for (const dir of [0, -1, 1]) {
+        for (let endMonth = 1; endMonth < 15; endMonth += 2) {
+          for (const n of [6, 9, 12]) {
+            const sched: number[] = [];
+            for (let k = 0; sched.length < n + 2; k++) {
+              const y = 2026 + Math.floor((endMonth - k) / 12), m = ((endMonth - k) % 12 + 12) % 12;
+              const last = new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
+              sched.push(Date.UTC(y, m, b === 0 ? last : b), Date.UTC(y, m, a));
+            }
+            const dates = sched.sort((x, y) => x - y).slice(-n).map((t) => move(t, dir)).map((t) => new Date(t).toISOString().slice(0, 10)).sort();
+            const [s] = await detectRecurringTransfers(v(dates, "Sweep Sender"), after(dates));
+            total++;
+            if (!(s?.frequency === "semi_monthly" && s.occurrence_count === n && s.ambiguity.length === 0)) {
+              wrong.push(`${a}/${b || "last"} dir ${dir} n ${n}: ${s?.frequency} ${s?.occurrence_count} [${s?.ambiguity}]`);
+            }
+          }
+        }
+      }
+    }
+    expect(total).toBe(504);
+    expect(wrong).toEqual([]);
   });
 });

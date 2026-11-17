@@ -63,7 +63,7 @@ export interface DetectedStream {
 }
 
 /** Stored with every stream so an auditor can tell which rule produced it (PHASE-2-SPEC.md AS BUILT 22, N13). */
-export const RULE_VERSION = "PHASE-2-SPEC recurring transfer rule v4.2 (AS BUILT 26)";
+export const RULE_VERSION = "PHASE-2-SPEC recurring transfer rule v4.4 (AS BUILT 27)";
 export const LOOKBACK_DAYS = 180;
 export const MIN_OCCURRENCES = 3;
 export const AMOUNT_TOLERANCE = 0.5;
@@ -142,6 +142,105 @@ function semiMonthlyDays(days: number[]): boolean {
   const mean = (xs: number[]) => xs.reduce((s, x) => s + x, 0) / xs.length;
   const apart = mean(upper) - mean(lower);
   return tight(lower) && tight(upper) && Math.abs(lower.length - upper.length) <= 1 && apart >= 10 && apart <= 20;
+}
+
+/**
+ * US Federal Reserve bank holidays for a year (PHASE-2-SPEC.md AS BUILT 27). A holiday on a Sunday is observed on
+ * the Monday; one on a Saturday is not moved (the Federal Reserve stays open the Friday before). Computed, not
+ * listed, so it never runs out; deterministic, so an auditor gets the same answer.
+ */
+const holidayCache = new Map<number, Set<string>>();
+function bankHolidays(y: number): Set<string> {
+  const hit = holidayCache.get(y);
+  if (hit) return hit;
+  const ymd = (m: number, d: number) => Date.UTC(y, m, d);
+  const nth = (m: number, dow: number, n: number) => { let d = 1; while (new Date(ymd(m, d)).getUTCDay() !== dow) d++; return ymd(m, d + 7 * (n - 1)); };
+  const last = (m: number, dow: number) => { let d = new Date(Date.UTC(y, m + 1, 0)).getUTCDate(); while (new Date(ymd(m, d)).getUTCDay() !== dow) d--; return ymd(m, d); };
+  const sunToMon = (t: number) => (new Date(t).getUTCDay() === 0 ? t + DAY : t);
+  const set = new Set([sunToMon(ymd(0, 1)), nth(0, 1, 3), nth(1, 1, 3), last(4, 1), sunToMon(ymd(5, 19)), sunToMon(ymd(6, 4)),
+    nth(8, 1, 1), nth(9, 1, 2), sunToMon(ymd(10, 11)), nth(10, 4, 4), sunToMon(ymd(11, 25))].map((t) => new Date(t).toISOString().slice(0, 10)));
+  holidayCache.set(y, set);
+  return set;
+}
+
+const addDays = (d: string, n: number) => new Date(Date.parse(d) + n * DAY).toISOString().slice(0, 10);
+function isBusinessDay(d: string): boolean {
+  const w = new Date(Date.parse(d)).getUTCDay();
+  return w !== 0 && w !== 6 && !bankHolidays(Number(d.slice(0, 4))).has(d);
+}
+
+/**
+ * The scheduled dates a deposit can be paying, for a payer who moves payments due on a non-business day in one
+ * direction: its own date, plus, when it is a business day, the non-business days right before it (dir 1: moved
+ * to the next business day) or right after it (dir -1: moved to the previous business day).
+ */
+function scheduledCandidates(d: string, dir: 1 | -1): Set<string> {
+  const out = new Set([d]);
+  if (!isBusinessDay(d)) return out;
+  for (let x = addDays(d, -dir); !isBusinessDay(x); x = addDays(x, -dir)) out.add(x);
+  return out;
+}
+
+/**
+ * Rule v4.4 (PHASE_2_REWORK_8.md): how many business-day moves it takes for every date to be one consecutive
+ * scheduled payment of frequency f, or null if no schedule of f explains every date. A scheduled date may be paid
+ * on its day or, when that day is a weekend or bank holiday, on the nearest business day before it or after it:
+ * one direction for the whole schedule, as a payer's bank or app moves every payment the same way.
+ * Weekly and biweekly schedules are a fixed step from an anchor; semi-monthly is a pair of days of the month (the
+ * second may be the last day); monthly is one day of the month (clamped to the month's end). The fewest moves over
+ * every anchor or day is returned, so an auditor can re-derive it.
+ */
+function scheduleFit(dates: string[], f: Frequency): number | null {
+  if (dates.length < MIN_OCCURRENCES) return null;
+  let best: number | null = null;
+  for (const dir of [1, -1] as const) {
+    const moves = scheduleFitDir(dates, f, dates.map((d) => scheduledCandidates(d, dir)));
+    if (moves !== null && (best === null || moves < best)) best = moves;
+  }
+  return best;
+}
+
+function scheduleFitDir(dates: string[], f: Frequency, cands: Set<string>[]): number | null {
+  let best: number | null = null;
+  const consider = (slots: string[]) => {
+    for (let start = 0; start + dates.length <= slots.length; start++) {
+      if (!cands[0].has(slots[start])) continue;
+      let moves = 0, ok = true;
+      for (let i = 0; i < dates.length && ok; i++) {
+        const slot = slots[start + i];
+        if (!cands[i].has(slot)) ok = false;
+        else if (slot !== dates[i]) moves++;
+      }
+      if (ok && (best === null || moves < best)) best = moves;
+    }
+  };
+  if (f === "weekly" || f === "biweekly") {
+    const step = f === "weekly" ? 7 : 14;
+    for (const anchor of cands[0]) consider(dates.map((_, i) => addDays(anchor, i * step)));
+    return best;
+  }
+  const from = addDays(dates[0], -7), to = addDays(dates[dates.length - 1], 7);
+  const monthSlots = (daysOf: (len: number) => number[]) => {
+    const slots: string[] = [];
+    for (let y = Number(from.slice(0, 4)), m = Number(from.slice(5, 7)) - 1; ; m++) {
+      const month = new Date(Date.UTC(y, m, 1)).toISOString().slice(0, 7);
+      if (month > to.slice(0, 7)) break;
+      for (const day of daysOf(daysInMonth(`${month}-01`))) {
+        const slot = `${month}-${String(day).padStart(2, "0")}`;
+        if (slot >= from && slot <= to) slots.push(slot);
+      }
+    }
+    return slots;
+  };
+  if (f === "monthly") {
+    for (let d = 1; d <= 31; d++) consider(monthSlots((len) => [Math.min(d, len)]));
+    return best;
+  }
+  // Semi-monthly: days a and b, 10 to 20 days apart; b of 29 or more means the last day of the month.
+  for (let a = 1; a <= 28; a++) {
+    for (let b = a + 10; b <= Math.min(a + 20, 29); b++) consider(monthSlots((len) => [a, b >= 29 ? len : b]));
+  }
+  return best;
 }
 
 /** Exact interval for the timing tie-break (INTERVAL above is the looser one for the activity check). */
@@ -240,6 +339,29 @@ function biweeklyDeviation(dates: string[]): number {
 }
 
 function bestRegularRun(txns: Txn[], typical: number, asOf: string): Regular | null {
+  // Under SHORT_SERIES deposits, biweekly and semi-monthly cannot be told apart reliably (a payment moved to the
+  // previous business day, or one overdue payment, is enough to tip it): the better fit is proposed and always
+  // flagged frequency_ambiguous (PHASE-2-SPEC.md ACCEPTANCE BAR, documented limit; PHASE_2_REWORK_7.md).
+  const short = (r: { frequency: Frequency; run: Txn[] }) => (r.frequency === "semi_monthly" || r.frequency === "biweekly") && r.run.length < SHORT_SERIES;
+
+  // Rule v4.4 (PHASE_2_REWORK_8.md): when one schedule explains every deposit, allowing for payments moved to a
+  // business day, that schedule is the stream, whole. The gap bands below cannot see business days: a holiday
+  // weekend stretches a gap past a band (read as a missed payment) or squeezes one under it (breaking the run).
+  // The frequency needing the fewest moves wins; only an equal count is a true tie, flagged. A clean biweekly
+  // sender needs none, so it beats a semi-monthly reading that needs moves to fit (February windows).
+  const dates = txns.map((t) => t.date);
+  const fits = PREFERENCE.flatMap((f) => {
+    if (days(dates[dates.length - 1], asOf) > INTERVAL[f] * 1.5) return []; // must still be active
+    const moves = scheduleFit(dates, f);
+    return moves === null ? [] : [{ f, moves }];
+  });
+  if (fits.length) {
+    const least = Math.min(...fits.map((x) => x.moves));
+    const top = fits.filter((x) => x.moves === least); // PREFERENCE order: on a tie, semi-monthly is proposed
+    const whole = { frequency: top[0].f, run: txns, missed: 0 };
+    return { ...whole, tie: top.length > 1 || short(whole) };
+  }
+
   const valid: { frequency: Frequency; run: Txn[]; missed: number }[] = [];
   for (const f of PREFERENCE) {
     const { txns: run, missed } = bestRun(txns, f, typical, asOf);
@@ -258,15 +380,18 @@ function bestRegularRun(txns: Txn[], typical: number, asOf: string): Regular | n
   // fixed days of the month are semi-monthly. Only a true tie is left to the reviewer (frequency_ambiguous).
   const rival = valid.find((v) => v !== best && v.run.length === best!.run.length && v.missed === best!.missed &&
     ((best!.frequency === "semi_monthly" && v.frequency === "biweekly") || (best!.frequency === "biweekly" && v.frequency === "semi_monthly")));
-  // Under SHORT_SERIES deposits, biweekly and semi-monthly cannot be told apart reliably (a payment moved to the
-  // previous business day, or one overdue payment, is enough to tip it): the better fit is proposed and always
-  // flagged frequency_ambiguous (PHASE-2-SPEC.md ACCEPTANCE BAR, documented limit; PHASE_2_REWORK_7.md).
-  const short = (r: { frequency: Frequency; run: Txn[] }) => (r.frequency === "semi_monthly" || r.frequency === "biweekly") && r.run.length < SHORT_SERIES;
   if (!rival) return { ...best, tie: short(best) };
   const semi = best.frequency === "semi_monthly" ? best : rival, bi = best.frequency === "biweekly" ? best : rival;
   const sd = semiMonthlyDeviation(semi.run.map((t) => t.date)) ?? Infinity, bd = biweeklyDeviation(bi.run.map((t) => t.date));
+  // With SHORT_SERIES or more deposits, a true biweekly series drifts across the month (about 1.2 days per payment)
+  // and cannot pass the day of month test; so when that test passes on a long series, it is semi-monthly, even
+  // with business-day shifts that also fit the biweekly band (PHASE_2_REWORK_8.md). The only exception is gaps of
+  // exactly 14 days landing on fixed days, which happens only in February windows: a true tie, flagged.
+  if (semi.run.length >= SHORT_SERIES) {
+    return bd === 0 ? { ...semi, tie: true } : { ...semi, tie: false };
+  }
   const pick = sd <= bd ? semi : bi;
-  return { ...pick, tie: sd === bd || short(pick) };
+  return { ...pick, tie: true }; // short: always flagged (SHORT_SERIES)
 }
 
 /**
